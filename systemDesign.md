@@ -141,6 +141,23 @@ one. Fixed by tracking two pieces of room-level state, both reset to
 - `buyProperty` resolves a pending `awaitBuy` by purchase. `declineBuy`
   resolves it by instead calling `startAuction(tileId)` — see "Auctions"
   below.
+- `payToLeaveHolding`/`useHoldingFreeCard` — voluntary alternatives to
+  rolling for doubles while stuck in the Holding Pen: pay the
+  `HOLDING_RELEASE_RENT` fine immediately, or consume a banked
+  `holdingFreeCard`, either of which sets `inHolding = false` so the
+  player's *next* `rollDice` this same turn behaves as ordinary free-play
+  movement rather than another holding-escape attempt. Both require it
+  being the player's own turn and that they're actually `inHolding`.
+- `playerEndTurn(playerId)` is the player-facing "End turn" action,
+  distinct from the internal `endTurn()` below (also called by
+  `kickPlayer` and the stuck-in-holding path inside `rollDice`, neither of
+  which should require a prior roll). It enforces that rolling is
+  mandatory each turn: rejects with `"Roll the dice before ending your
+  turn"` if `this.lastRoll` is still `null` for the current turn. This
+  also resolves a structural inconsistency flagged in an earlier pass —
+  every other player action's primary guard lived inside `Room.js`, but
+  `endTurn`'s guards used to live in `index.js` instead; they now live
+  here, alongside the new roll requirement.
 - `buyHouse` enforces full-color-group ownership, a 5-level cap (level 5 =
   hotel), and that the property isn't mortgaged before allowing a purchase.
 - `sellHouse` is the reverse: reduces `houses` by one and refunds half the
@@ -270,13 +287,38 @@ in shape but two-sided in content: the proposer's `offerProperties` +
 property — it calls `startAuction(tileId)`, opening bidding to every
 active player (including whoever just declined).
 - `startAuction` pushes a new entry onto `auctions[]` (`{ id, tileId,
-  highestBid, highestBidderId, passedIds }`) and sets `pendingAction =
-  { type: "auction", tileId, auctionId, playerId: currentPlayer.id }`.
-  Because `rollDice`/`endTurn` already refuse to act while *any*
-  `pendingAction` is set, this one line is enough to block the declining
-  player from rolling again or ending their turn until the auction they
-  caused is resolved — no new gating logic needed, just reusing the
-  existing mechanism with a new `pendingAction.type`.
+  highestBid, highestBidderId, passedIds, deadline, timer }`) and sets
+  `pendingAction = { type: "auction", tileId, auctionId, playerId:
+  currentPlayer.id }`. Because `rollDice`/`endTurn` already refuse to act
+  while *any* `pendingAction` is set, this one line is enough to block the
+  declining player from rolling again or ending their turn until the
+  auction they caused is resolved — no new gating logic needed, just
+  reusing the existing mechanism with a new `pendingAction.type`.
+- **Auctions auto-resolve on a deadline rather than relying solely on
+  unanimous explicit passes.** Originally an auction only ever ended when
+  every active player but one had clicked Pass — fine in principle, but a
+  player who's lost interest mid-auction has no obligation to actually
+  click anything, so the auction could sit open indefinitely with no way
+  to force a close. Fixed with a soft-close timer, the same pattern eBay
+  -style auctions use: `AUCTION_BASE_MS` (10s) from when the auction
+  opens, and each `placeBid` extends the deadline to at least
+  `AUCTION_EXTEND_MS` (3s) from that bid (`Math.max(currentDeadline, now +
+  3000)` — never shortens an already-later deadline). `scheduleAuctionTimer`
+  clears any existing timer for that auction and arms a fresh `setTimeout`
+  for whatever the current deadline computes to; when it actually fires,
+  it calls `resolveAuction` with whatever the current state is (highest
+  bidder wins, or the property stays unowned if nobody ever bid) and
+  `this.notify?.()` to push the resulting state to clients with no client
+  request having triggered it (same pattern as the turn timer and grace
+  -window timer). The early-resolve-on-unanimous-pass path
+  (`maybeResolveAuction`) still exists alongside this and can close an
+  auction *before* the timer fires — the timer is a backstop for the case
+  where players go quiet without explicitly passing, not a replacement
+  for the existing logic.
+- `resolveAuction` clears the auction's timer handle before removing it
+  from `auctions[]`, and `clearAllAuctionTimers()` (called from
+  `cleanupIfDone` in `index.js`) sweeps any remaining timers when a room
+  is deleted, mirroring `clearTurnTimer`'s role for the turn timer.
 - **Several auctions can be open at once.** Each gets its own `id` rather
   than the room holding one auction slot — e.g. a turn-timeout kick mid
   -auction hands the turn to a new player who could immediately land on a
@@ -496,8 +538,12 @@ the next remaining active player automatically becomes host.
   **not turn-gated** — any active player can bid or pass on any open
   auction regardless of whose turn it is, since that's the whole point of
   an auction. Each card shows the tile, current high bid/bidder (or "No
-  bids yet"), and either a bid input + Bid/Pass buttons, or "You passed on
-  this auction" if `myId` is already in that auction's `passedIds`.
+  bids yet"), an `AuctionCountdown` (same ticks-every-second-purely-for
+  -display pattern as `TurnCountdown`) derived from `auction.deadline`,
+  turning urgent-red in the last 3 seconds — purely informational, the
+  server's own timer is what actually closes it — and either a bid input
+  + Bid/Pass buttons, or "You passed on this auction" if `myId` is
+  already in that auction's `passedIds`.
 
 ## 4. Wire protocol (Socket.io events)
 
@@ -517,7 +563,9 @@ the next remaining active player automatically becomes host.
 | `sellHouse` | `{ tileId }` | no full-group requirement to sell down |
 | `mortgageProperty` | `{ tileId }` | requires undeveloped, not already mortgaged; not turn-gated |
 | `unmortgageProperty` | `{ tileId }` | requires enough coins for value + 10% interest; not turn-gated |
-| `endTurn` | — | current-player-only; rejected if `pendingAction` set |
+| `payToLeaveHolding` | — | current-player-only; requires `player.inHolding`; costs `HOLDING_RELEASE_RENT` |
+| `useHoldingFreeCard` | — | current-player-only; requires `player.inHolding && holdingFreeCard` |
+| `endTurn` | — | current-player-only; rejected if `pendingAction` set **or no roll yet this turn** |
 | `leaveRoom` | — | graceful manual exit; forfeits the seat exactly like a disconnect would |
 | `proposeTrade` | `{ toId, offerProperties, offerMoney, requestProperties, requestMoney }` | not turn-gated; either side can be any active player |
 | `respondTrade` | `{ tradeId, accept }` | only the trade's `toId` may respond |
@@ -659,9 +707,26 @@ grows much larger or tick rate increases.
   doesn't count anymore — it's reset to $0/no-bidder rather than falling
   back to whatever the second-highest bid was (full bid history isn't
   tracked), and they're treated as having passed.
+- **An auction closes on a deadline even if nobody explicitly passes.**
+  The unanimous-pass path can still close it early; the 10s-base/3s
+  -extension timer is the backstop that guarantees it closes *eventually*
+  regardless of whether players bother clicking Pass once they're done
+  bidding.
 - **Mortgaging waives rent entirely rather than reducing it.** Simpler
   than a partial-rent rule, and matches the usual convention that a
   mortgaged property generates no income for its owner until it's paid off.
+- **Rolling the dice is mandatory, not optional, before ending a turn.**
+  `playerEndTurn` checks `this.lastRoll` rather than, say, a separate
+  "hasRolled" flag — `lastRoll` is already reset to `null` at the start of
+  every turn and only ever set by a successful roll, so it's already
+  exactly the signal needed with no new state to introduce or keep in sync.
+- **Paying to leave the Holding Pen and using a Get Out of Jail Free card
+  are alternatives to rolling, not additional actions on top of it.**
+  Neither one moves the player or consumes their roll for the turn — they
+  just clear `inHolding`, so the player's *next* `rollDice` call behaves
+  as ordinary free-play movement instead of attempting another
+  holding-escape roll. A player can still choose to just roll for doubles
+  instead of paying/using a card, exactly as before this fix.
 - **Persistence is "always-save, no debounce," not "save periodically."**
   Every state-changing event re-serializes and overwrites the entire
   `rooms.json` file. At this game's pace that's cheap and means in-memory
@@ -708,10 +773,6 @@ grows much larger or tick rate increases.
 - No minimum bid increment on auctions — any integer strictly above the
   current high bid is accepted, even $1 more. Real auctions often enforce
   a minimum raise; not implemented here.
-- No time limit on an individual auction itself — it can sit open
-  indefinitely as long as at least two active players haven't passed,
-  independent of the 4-minute turn timer (which only ever applies to the
-  original decliner, not to other players' bidding).
 - Voiding a kicked/bankrupt high bidder's bid drops straight to $0/no
   -bidder instead of falling back to the next-highest actual bid, since
   bid history isn't tracked. In practice this just means the auction
@@ -736,3 +797,15 @@ grows much larger or tick rate increases.
   restore (caught by the per-room `try/catch` in `index.js`, so it fails
   safely rather than crashing) or restore with a now-stale shape. No
   versioning scheme exists yet for the snapshot format.
+- An auction's deadline resets to a fresh full base window on a server
+  restart, same simplification as the turn timer — exact remaining time
+  (including any extension already in effect) isn't preserved across a
+  restart.
+- No minimum bid increment on auctions remains unaddressed by the new
+  timer — the timer fixes "auctions can hang forever," not "a $1 raise is
+  a valid bid," which is still true.
+- Paying to leave the Holding Pen or using a Get Out of Jail Free card are
+  only exposed as their own buttons when `inHolding` is true; there's no
+  unified "what are my options right now" affordance distinguishing
+  "must act" states (it's your turn, you're confined) from optional ones.
+  Minor UX gap, not a rules gap.

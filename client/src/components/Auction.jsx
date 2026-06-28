@@ -1,5 +1,21 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { socket } from "../socket";
+
+function AuctionCountdown({ deadline }) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const secondsLeft = Math.max(0, Math.round((deadline - now) / 1000));
+  return (
+    <p className={`turn-countdown ${secondsLeft <= 3 ? "turn-countdown-urgent" : ""}`}>
+      ⏱ closes in {secondsLeft}s{secondsLeft <= 3 ? " -- bid now to extend" : ""}
+    </p>
+  );
+}
 
 function AuctionCard({ auction, board, players, myId }) {
   const tile = board[auction.tileId];
@@ -27,6 +43,7 @@ function AuctionCard({ auction, board, players, myId }) {
       <p className="trade-side">
         {highBidder ? `High bid: $${auction.highestBid} by ${highBidder.name}` : "No bids yet"}
       </p>
+      <AuctionCountdown deadline={auction.deadline} />
       {hasPassed ? (
         <p className="hint">You passed on this auction.</p>
       ) : (

@@ -9,6 +9,108 @@ in the same pass.
 
 ---
 
+## Pass 12 — 2026-06-29 — Fix: three bugs found in a real playtest
+
+**Goal:** the user ran an actual test session and reported three concrete
+bugs, each a genuine missing piece of intended game behavior rather than
+a stale-state pattern like Passes 10–11.
+
+**What was found and fixed:**
+- **Ending a turn without ever rolling was allowed.** Neither
+  `index.js`'s `endTurn` handler nor `Room.endTurn()` checked whether the
+  current player had rolled at all this turn — only `pendingAction` was
+  checked. Fixed by adding `Room.playerEndTurn(playerId)`, the new
+  player-facing entry point (rejects with `"Roll the dice before ending
+  your turn"` if `this.lastRoll` is still `null`), while the internal
+  `endTurn()` stays usable by `kickPlayer` and the stuck-in-holding path,
+  neither of which should require a prior roll. `index.js`'s handler now
+  just calls `room.playerEndTurn()` — this also resolved a structural
+  inconsistency flagged at the end of Pass 11 (every other action's guard
+  lived in `Room.js`; `endTurn`'s lived in `index.js`).
+- **Auctions never closed on their own.** The only resolution path was
+  `maybeResolveAuction` triggering off unanimous explicit passes — a
+  player who simply stopped engaging (no Pass click, no further bids)
+  left the auction open forever. Added a soft-close timer per auction:
+  `AUCTION_BASE_MS` (10s) from when it opens, extended to at least
+  `AUCTION_EXTEND_MS` (3s) from each new bid (never shortened), via
+  `scheduleAuctionTimer`. When the timer actually fires, `resolveAuction`
+  runs with whatever the current state is and `this.notify?.()` pushes
+  the result with no client request having triggered it — same pattern
+  already used for the turn timer and grace-window timer. The existing
+  unanimous-pass path still works and can close an auction *before* the
+  timer; the timer is purely a backstop for when bidding goes quiet
+  without anyone bothering to click Pass. Added `clearAllAuctionTimers()`
+  (called from `cleanupIfDone`) and timer cleanup in `resolveAuction`
+  itself, mirroring how the turn timer is already managed. Updated
+  `toState()`/`toSnapshot()` to strip the raw timer handle from each
+  auction (same pattern as `graceTimer`), and `fromSnapshot()` to re-arm
+  each restored auction with a fresh base window (same simplification
+  already applied to the turn timer in Pass 9).
+- **No way to voluntarily leave the Holding Pen, and "Get Out of Jail
+  Free" cards were never usable to escape.** `holdingFreeCard` only ever
+  got *consulted* inside `sendToHolding` to avoid going to jail in the
+  first place — there was no path to use a banked card to leave once
+  already confined, and no way to pay the fine early instead of waiting
+  out doubles/the 3-turn cap. Added `Room.payToLeaveHolding(playerId)`
+  (pays `HOLDING_RELEASE_RENT`, same amount as the existing forced-pay
+  -after-3-turns case) and `Room.useHoldingFreeCard(playerId)`. Both just
+  clear `inHolding`/`holdingTurns` without moving the player or consuming
+  their roll — their next `rollDice` call this same turn then behaves as
+  ordinary free-play movement, since `wasInHolding` is read fresh from
+  current state at the top of every roll. Client: `Hud.jsx` shows both
+  options (Pay $50 / Use card, the latter only if `me.holdingFreeCard` is
+  true) whenever it's the player's turn and they're `inHolding`, above the
+  normal Roll/End-turn row.
+- Verified all three with direct `Room` unit tests (temporary files,
+  deleted before committing): end-turn-before-rolling rejected, succeeds
+  and advances the turn after rolling; pay/use-card both correctly clear
+  `inHolding`, charge/consume correctly, reject when not applicable; a
+  no-bid auction auto-resolves after the base window with the tile
+  staying unowned, and a bid placed near the deadline correctly extends it
+  rather than letting the auction close mid-exchange (tested against a
+  temporary copy of `Room.js` with shortened timer constants, same
+  technique used for the disconnect grace window and turn timer in
+  earlier passes).
+
+**Why these calls:**
+- `playerEndTurn` as a new method rather than just patching the existing
+  `endTurn()`: `endTurn()` is also called internally from contexts where
+  "did they roll" isn't a meaningful question (kicking a player, the
+  stuck-in-holding auto-advance) — conflating the player-initiated action
+  with the internal turn-advancement primitive would have meant
+  special-casing those internal callers to bypass a check that doesn't
+  apply to them, which is more fragile than just having two clearly
+  -scoped methods.
+- A soft-close timer (extend-on-bid) rather than a hard fixed-length
+  countdown: a hard countdown can cut off an active bidding war
+  arbitrarily (someone bids at 9.9s, the timer fires at 10s before anyone
+  can respond); extending on each bid guarantees the auction only closes
+  once bidding has actually gone quiet, which is the behavior actually
+  wanted ("don't let it hang forever" without "cut off live bidding").
+- Pay/use-card as alternatives that don't themselves roll or move:
+  keeping them orthogonal to `rollDice` (just flipping `inHolding` before
+  the player's next roll) avoids duplicating any movement/tile-resolution
+  logic — the existing `rollDice` path already does the right thing for a
+  free player, so freeing them and letting them roll normally costs zero
+  new movement code.
+
+**Known gaps left for later:** no minimum bid increment (separate from
+the new timer fix); no exact-time preservation for an auction's deadline
+across a server restart (same simplification as the turn timer); no
+unified UI affordance distinguishing "must act now" from "optional"
+states beyond the new holding-pen buttons appearing conditionally.
+
+**State at end of pass:** all three fixes verified via direct `Room` unit
+tests (temporary files, deleted before committing — one used a shortened
+-constants copy of `Room.js` to avoid a real 10+ second wait); JSX changes
+verified via esbuild bundle checks. `systemDesign.md` updated in place —
+new method descriptions, a new auction-timer subsection, wire protocol
+entries, invariants, and gaps (removed the now-resolved "no time limit on
+an individual auction" line, added new ones for the remaining edges of
+this pass's fixes).
+
+---
+
 ## Pass 11 — 2026-06-29 — Fix: two more instances of the Pass 10 bug pattern
 
 **Goal:** after fixing the extra-rolls bug in Pass 10, the user pushed

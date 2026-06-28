@@ -141,6 +141,20 @@ io.on("connection", (socket) => {
     broadcastState(room.code);
   });
 
+  socket.on("payToLeaveHolding", () => {
+    const room = getRoom(socket);
+    if (!room) return;
+    room.payToLeaveHolding(getPlayerId(socket));
+    broadcastState(room.code);
+  });
+
+  socket.on("useHoldingFreeCard", () => {
+    const room = getRoom(socket);
+    if (!room) return;
+    room.useHoldingFreeCard(getPlayerId(socket));
+    broadcastState(room.code);
+  });
+
   socket.on("buyProperty", () => {
     const room = getRoom(socket);
     if (!room) return;
@@ -228,11 +242,7 @@ io.on("connection", (socket) => {
   socket.on("endTurn", () => {
     const room = getRoom(socket);
     if (!room) return;
-    const playerId = getPlayerId(socket);
-    const player = room.currentPlayer();
-    if (!player || player.id !== playerId) return;
-    if (room.pendingAction) return;
-    room.endTurn();
+    room.playerEndTurn(getPlayerId(socket));
     broadcastState(room.code);
   });
 
@@ -269,6 +279,7 @@ function cleanupIfDone(room) {
   const allDone = room.players.length === 0 || room.players.every((p) => p.bankrupt || p.left);
   if (allDone) {
     room.clearTurnTimer();
+    room.clearAllAuctionTimers();
     rooms.delete(room.code);
     persistRooms();
   } else {

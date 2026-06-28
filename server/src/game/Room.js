@@ -8,6 +8,8 @@ const MAX_HOLDING_TURNS = 3;
 const TURN_TIME_LIMIT_MS = 4 * 60 * 1000;
 const DISCONNECT_GRACE_MS = 20 * 1000;
 const MORTGAGE_INTEREST_RATE = 0.1;
+const AUCTION_BASE_MS = 10 * 1000;
+const AUCTION_EXTEND_MS = 3 * 1000;
 
 const PLAYER_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6", "#1abc9c"];
 
@@ -174,6 +176,12 @@ export class Room {
     if (this.turnTimer) clearTimeout(this.turnTimer);
     this.turnTimer = null;
     this.turnDeadline = null;
+  }
+
+  clearAllAuctionTimers() {
+    for (const auction of this.auctions) {
+      if (auction.timer) clearTimeout(auction.timer);
+    }
   }
 
   rollDice(playerId) {
@@ -388,6 +396,33 @@ export class Room {
     this.pushLog(`${player.name} was sent to the Holding Pen.`);
   }
 
+  // Voluntary alternative to rolling for doubles -- a player stuck in the Holding
+  // Pen can pay the fine on their own turn instead of waiting it out, freeing them
+  // to roll and move normally for the rest of this same turn.
+  payToLeaveHolding(playerId) {
+    const player = this.currentPlayer();
+    if (!player || player.id !== playerId) return { error: "Not your turn" };
+    if (!player.inHolding) return { error: "You're not in the Holding Pen" };
+    if (player.balance < HOLDING_RELEASE_RENT) return { error: "Not enough coins" };
+    player.balance -= HOLDING_RELEASE_RENT;
+    player.inHolding = false;
+    player.holdingTurns = 0;
+    this.pushLog(`${player.name} paid ${HOLDING_RELEASE_RENT} coins to leave the Holding Pen.`);
+    return { ok: true };
+  }
+
+  useHoldingFreeCard(playerId) {
+    const player = this.currentPlayer();
+    if (!player || player.id !== playerId) return { error: "Not your turn" };
+    if (!player.inHolding) return { error: "You're not in the Holding Pen" };
+    if (!player.holdingFreeCard) return { error: "You don't have a Get Out of Jail Free card" };
+    player.holdingFreeCard = false;
+    player.inHolding = false;
+    player.holdingTurns = 0;
+    this.pushLog(`${player.name} used a Get Out of Jail Free card to leave the Holding Pen.`);
+    return { ok: true };
+  }
+
   buyProperty(playerId) {
     if (!this.pendingAction || this.pendingAction.type !== "awaitBuy" || this.pendingAction.playerId !== playerId) {
       return { error: "No property to buy" };
@@ -419,10 +454,36 @@ export class Room {
   // player who immediately lands on a different unowned tile before the first auction
   // closes -- so each gets its own independent id rather than sharing one slot.
   startAuction(tileId) {
-    const auction = { id: nanoid(), tileId, highestBid: 0, highestBidderId: null, passedIds: [] };
+    const auction = {
+      id: nanoid(),
+      tileId,
+      highestBid: 0,
+      highestBidderId: null,
+      passedIds: [],
+      deadline: Date.now() + AUCTION_BASE_MS,
+      timer: null,
+    };
     this.auctions.push(auction);
     this.pendingAction = { type: "auction", tileId, auctionId: auction.id, playerId: this.currentPlayer()?.id };
     this.pushLog(`${BOARD[tileId].name} is up for auction!`);
+    this.scheduleAuctionTimer(auction.id);
+  }
+
+  // Without this, an auction with no clear unanimous-pass would sit open forever
+  // (real players don't always explicitly pass once they've lost interest). Every
+  // auction has a 10s base window from when it opens; each bid extends the deadline
+  // to at least 3s after that bid, so a flurry of late bids can't cut each other
+  // off mid-exchange, but bidding has to actually go quiet for the clock to run out.
+  scheduleAuctionTimer(auctionId) {
+    const auction = this.auctions.find((a) => a.id === auctionId);
+    if (!auction) return;
+    if (auction.timer) clearTimeout(auction.timer);
+    const delay = Math.max(0, auction.deadline - Date.now());
+    auction.timer = setTimeout(() => {
+      auction.timer = null;
+      this.resolveAuction(auctionId);
+      this.notify?.();
+    }, delay);
   }
 
   placeBid(playerId, auctionId, amount) {
@@ -437,6 +498,8 @@ export class Room {
     if (amount > player.balance) return { error: "Not enough coins" };
     auction.highestBid = amount;
     auction.highestBidderId = playerId;
+    auction.deadline = Math.max(auction.deadline, Date.now() + AUCTION_EXTEND_MS);
+    this.scheduleAuctionTimer(auction.id);
     this.pushLog(`${player.name} bid ${amount} coins on ${BOARD[auction.tileId].name}.`);
     this.maybeResolveAuction(auction.id);
     return { ok: true };
@@ -469,6 +532,7 @@ export class Room {
   resolveAuction(auctionId) {
     const auction = this.auctions.find((a) => a.id === auctionId);
     if (!auction) return;
+    if (auction.timer) clearTimeout(auction.timer);
     this.auctions = this.auctions.filter((a) => a.id !== auctionId);
     const tile = BOARD[auction.tileId];
     if (auction.highestBidderId) {
@@ -713,6 +777,19 @@ export class Room {
     }
   }
 
+  // The player-facing "End turn" action -- unlike the internal endTurn() below
+  // (also called by kickPlayer and the stuck-in-holding path, neither of which
+  // should require a prior roll), this enforces that rolling is mandatory: you
+  // can't just pass through your turn without ever rolling the dice.
+  playerEndTurn(playerId) {
+    const player = this.currentPlayer();
+    if (!player || player.id !== playerId) return { error: "Not your turn" };
+    if (this.pendingAction) return { error: "Resolve the current action first" };
+    if (!this.lastRoll) return { error: "Roll the dice before ending your turn" };
+    this.endTurn();
+    return { ok: true };
+  }
+
   endTurn() {
     this.clearTurnTimer();
     this.pendingAction = null;
@@ -746,7 +823,7 @@ export class Room {
       winnerId: this.winnerId,
       turnDeadline: this.turnDeadline,
       trades: this.trades,
-      auctions: this.auctions,
+      auctions: this.auctions.map(({ timer, ...pub }) => pub),
       canRollAgain: this.canRollAgain,
       board: BOARD,
     };
@@ -771,7 +848,7 @@ export class Room {
       pendingAction: this.pendingAction,
       winnerId: this.winnerId,
       trades: this.trades,
-      auctions: this.auctions,
+      auctions: this.auctions.map(({ timer, ...rest }) => rest),
       canRollAgain: this.canRollAgain,
       consecutiveDoubles: this.consecutiveDoubles,
     };
@@ -799,7 +876,10 @@ export class Room {
     room.pendingAction = snapshot.pendingAction;
     room.winnerId = snapshot.winnerId;
     room.trades = snapshot.trades || [];
-    room.auctions = snapshot.auctions || [];
+    // Same simplification as the turn timer below: old timer handles are gone, so
+    // each restored auction gets a fresh full base window rather than trying to
+    // preserve exactly how much time was left.
+    room.auctions = (snapshot.auctions || []).map((a) => ({ ...a, timer: null, deadline: Date.now() + AUCTION_BASE_MS }));
     room.canRollAgain = snapshot.canRollAgain ?? true;
     room.consecutiveDoubles = snapshot.consecutiveDoubles || 0;
 
@@ -810,6 +890,9 @@ export class Room {
     }
     if (room.started && !room.winnerId) {
       room.startTurnTimer();
+    }
+    for (const auction of room.auctions) {
+      room.scheduleAuctionTimer(auction.id);
     }
     return room;
   }

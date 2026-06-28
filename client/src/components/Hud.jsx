@@ -79,6 +79,18 @@ export default function Hud({ state, myId, onLeave }) {
           )}
           {state.lastCard && <p className="card-display">{state.lastCard.deck === "surprise" ? "❓" : "🎁"} {state.lastCard.text}</p>}
 
+          {isMyTurn && !pending && me?.inHolding && (
+            <div className="buy-prompt">
+              <p>You're in the Holding Pen. Roll for doubles, or:</p>
+              <div className="action-row">
+                <button onClick={() => socket.emit("payToLeaveHolding")}>Pay $50 to leave</button>
+                {me.holdingFreeCard && (
+                  <button onClick={() => socket.emit("useHoldingFreeCard")}>Use Get Out of Jail Free</button>
+                )}
+              </div>
+            </div>
+          )}
+
           {isMyTurn && !pending && (
             <div className="action-row">
               {state.canRollAgain && (
