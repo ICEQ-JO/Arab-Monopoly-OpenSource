@@ -207,9 +207,28 @@ in shape but two-sided in content: the proposer's `offerProperties` +
   trigger, since funds were just verified, but cheap to call).
 - `cancelTrade(playerId, tradeId)` — only the original proposer (`fromId`)
   can withdraw their own pending offer.
+- `counterTrade(playerId, tradeId, {...})` — only the trade's `toId` can
+  counter (same authorization as responding). It **replaces** the
+  original offer rather than coexisting with it: the original is removed
+  from `trades[]` and a brand-new trade is built via the same
+  `buildTrade()` helper `proposeTrade` uses, but with the direction
+  flipped — the counterer becomes the new `fromId`, the original proposer
+  becomes the new `toId`. The new trade carries a `counterOf` field
+  pointing at the original trade's id, purely for display ("this is a
+  counter-offer") — it has no effect on validation or resolution, which
+  treat a counter exactly like any other fresh trade from that point on
+  (including being itself counterable again, any number of times).
+  `buildTrade(fromId, {...})` is the validation logic both `proposeTrade`
+  and `counterTrade` share (extracted in this pass): everything
+  `proposeTrade` used to do inline — active-player checks, integer/
+  non-negative money, non-empty trade, `isTradeable()` on both sides — now
+  lives in one place, returning `{ trade }` or `{ error }` without
+  mutating `trades[]` itself, so each caller decides what to do with the
+  result (push it fresh, or swap it in for what it's replacing).
 - `clearTradesInvolving(playerId)` is called from both `kickPlayer` and
   `checkBankruptcy` so a trade never dangles after one side of it leaves
-  the game mid-negotiation.
+  the game mid-negotiation. This also covers counter-offers, since a
+  counter is just another entry in the same `trades[]` array.
 
 **Auctions:** `declineBuy` no longer just walks away from an unowned
 property — it calls `startAuction(tileId)`, opening bidding to every
@@ -372,15 +391,21 @@ the next remaining active player automatically becomes host.
   Every interactive control just emits a socket event; it never mutates
   local state directly.
 - `components/Trade.jsx` — rendered in the `Hud` whenever the game is
-  started and there's no winner yet. Shows incoming offers (`toId ===
-  myId`) with Accept/Decline, outgoing offers (`fromId === myId`) with
-  Cancel, and a collapsible "Propose a trade" form: pick a target player,
-  checkbox-select from your own and their tradeable tiles (computed
+  started and there's no winner yet. The give/get checkbox-and-coins
+  picker is its own `TradeForm` sub-component (computes tradeable tiles
   client-side the same way the server does — owned, undeveloped — purely
   to avoid offering something that'll just get rejected; the server
-  re-checks all of this regardless), and coin amounts on both sides. Like
-  every other control, it only emits events (`proposeTrade`/`respondTrade`
-  /`cancelTrade`) and renders whatever `state.trades` comes back.
+  re-checks all of this regardless), reused in two places: the collapsible
+  "Propose a trade" panel (target player + the form), and an inline
+  "Counter" form on each incoming offer (`IncomingTradeCard`, target fixed
+  to the original proposer). Incoming offers show Accept/Decline/Counter;
+  clicking Counter swaps in the `TradeForm` in place of those three
+  buttons rather than opening a separate dialog. Outgoing offers show
+  Cancel. A `counterOf` field on a trade renders as a small "counter
+  -offer" badge in `TradeSummary`, purely cosmetic. Like every other
+  control, it only emits events (`proposeTrade`/`counterTrade`
+  /`respondTrade`/`cancelTrade`) and renders whatever `state.trades`
+  comes back.
 - `components/Auction.jsx` — rendered above `Trade` in the `Hud`, same
   gating (started, no winner). Lists every entry in `state.auctions`,
   **not turn-gated** — any active player can bid or pass on any open
@@ -411,6 +436,7 @@ the next remaining active player automatically becomes host.
 | `leaveRoom` | — | graceful manual exit; forfeits the seat exactly like a disconnect would |
 | `proposeTrade` | `{ toId, offerProperties, offerMoney, requestProperties, requestMoney }` | not turn-gated; either side can be any active player |
 | `respondTrade` | `{ tradeId, accept }` | only the trade's `toId` may respond |
+| `counterTrade` | `{ tradeId, offerProperties, offerMoney, requestProperties, requestMoney }` | only the trade's `toId` may counter; replaces the original |
 | `cancelTrade` | `{ tradeId }` | only the trade's `fromId` may cancel |
 
 **Server → Client**
@@ -482,6 +508,19 @@ grows much larger or tick rate increases.
   ownership, development, available funds — could have changed; accepting
   re-derives all of it from current state rather than replaying a stale
   snapshot.
+- **A counter-offer replaces the original rather than coexisting with
+  it.** There is never more than one live offer for a given negotiation —
+  countering removes the trade it's countering and inserts a new one in
+  its place, going through the exact same validation a fresh proposal
+  would (via the shared `buildTrade` helper). This keeps "what's the
+  current state of this negotiation" unambiguous: exactly one trade
+  object, with `counterOf` as a breadcrumb back to what it replaced, not a
+  chain of competing live offers.
+- **A counter can itself be countered, with no limit.** Nothing in
+  `counterTrade` distinguishes a fresh proposal from a counter-offer when
+  validating or deciding who's allowed to counter it next (whoever is the
+  current `toId`) — negotiation can bounce back and forth indefinitely
+  until someone accepts, declines, or cancels.
 - **Only undeveloped, unmortgaged properties can be traded.** Avoids the
   open question of what happens to houses/hotels or an outstanding
   mortgage mid-swap (and matches the familiar rule that you sell houses
@@ -536,9 +575,11 @@ grows much larger or tick rate increases.
   the grace window only applies once `started` is true. Probably fine
   (rejoining a lobby is just `joinRoom` again with the same code), but
   worth naming as an intentional asymmetry.
-- No counter-offer flow for trades: declining is final — to propose
-  something different, the original proposer has to start a brand new
-  trade rather than the recipient adjusting and bouncing it back.
+- No limit on how many times a counter-offer can bounce back and forth,
+  and no UI distinction between "this is the 1st counter" vs. "this is the
+  10th" beyond the most recent trade's `counterOf` pointing one step back
+  — there's no full negotiation history visible, just whatever the
+  current live offer is.
 - No limit on how many trades a player can have open at once, and no
   per-player rate limiting on `proposeTrade` — fine for a casual game
   between friends, not something that's been hardened against spam.

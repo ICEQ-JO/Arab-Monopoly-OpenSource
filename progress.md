@@ -9,6 +9,76 @@ in the same pass.
 
 ---
 
+## Pass 8 — 2026-06-28 — Trade counter-offers
+
+**Goal:** close the last gap flagged from the trading work — declining an
+offer was final, with no way to propose something different short of
+starting a whole new trade. Let the recipient counter instead.
+
+**What was done:**
+- Extracted `proposeTrade`'s inline validation into a shared
+  `Room.buildTrade(fromId, {...})` helper that returns `{ trade }` or
+  `{ error }` without mutating `trades[]` itself. `proposeTrade` now just
+  calls it and pushes the result; this pass's new `counterTrade` calls the
+  exact same helper rather than duplicating the validation rules.
+- Added `Room.counterTrade(playerId, tradeId, {...})`: only the original
+  trade's `toId` can counter (same authorization `respondTrade` already
+  enforces). It removes the original trade and replaces it with a new one
+  built via `buildTrade`, direction flipped — the counterer becomes the
+  new `fromId`, the original proposer becomes the new `toId` — tagged
+  with a `counterOf` field pointing back at the trade it replaced (purely
+  for display; no effect on validation or resolution). A counter is
+  otherwise indistinguishable from a fresh proposal: it can be accepted,
+  declined, cancelled, or countered again, with no limit on how many times
+  an offer can bounce back and forth.
+- `index.js`: added the `counterTrade` socket event.
+- Client: refactored `Trade.jsx`'s give/get checkbox-and-coins picker into
+  a standalone `TradeForm` sub-component, reused in two places — the
+  existing "Propose a trade" panel, and a new inline counter-offer form
+  that replaces the Accept/Decline/Counter buttons on an incoming trade
+  card when "Counter" is clicked (target player fixed to the original
+  proposer, no separate dialog/modal). `TradeSummary` now shows a small
+  "counter-offer" badge when a trade has a `counterOf`.
+- Verified server-side with a direct `Room` unit test (not committed):
+  countering removes the original and replaces it with exactly one new
+  trade; the new trade's direction is correctly flipped and linked via
+  `counterOf`; accepting the counter correctly swaps ownership and applies
+  the (possibly different) money amounts in both directions; the original
+  proposer cannot counter their own offer (only the recipient can). All
+  passed.
+
+**Why these calls:**
+- Replace rather than append: keeping the original offer alive alongside
+  a counter would mean two competing live proposals for the same
+  negotiation with no clear "current" state — simpler and less ambiguous
+  to always have exactly one live trade per negotiation thread, with
+  `counterOf` as a breadcrumb rather than a parallel option.
+- Reused `buildTrade` instead of writing separate validation for counters:
+  a counter-offer has to satisfy the exact same constraints a fresh
+  proposal does (ownership, development, mortgage status, funds, non
+  -empty) — there was no reason for two copies of that logic to exist and
+  risk drifting apart.
+- No depth limit on counter-chains: nothing about the mechanism changes
+  past the first counter, so adding an artificial cap would be arbitrary
+  complexity for a constraint nobody asked for. If spam turns out to be a
+  problem in practice, that's the same already-acknowledged gap as
+  unlimited concurrent trades generally, not something specific to
+  countering.
+
+**Known gaps left for later:** no negotiation history beyond one
+`counterOf` hop back, no cap on trade/counter volume per player.
+Persistent rooms is the one item left from the original feature list.
+
+**State at end of pass:** server-side logic verified via a direct `Room`
+unit test (temporary file, deleted before committing); `Trade.jsx` JSX
+syntax verified via an esbuild bundle check; no dev server was needed.
+`systemDesign.md` updated in place — new `counterTrade`/`buildTrade`
+descriptions, updated `Trade.jsx` client description, wire protocol entry,
+invariants, and gaps (removed the now-resolved "no counter-offer flow"
+line).
+
+---
+
 ## Pass 7 — 2026-06-28 — Auctions on declined purchases
 
 **Goal:** the last item from the original feature gap list — when a player

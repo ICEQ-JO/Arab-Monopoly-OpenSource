@@ -174,6 +174,13 @@ io.on("connection", (socket) => {
     broadcastState(room.code);
   });
 
+  socket.on("counterTrade", ({ tradeId, ...payload }) => {
+    const room = getRoom(socket);
+    if (!room) return;
+    room.counterTrade(getPlayerId(socket), tradeId, payload || {});
+    broadcastState(room.code);
+  });
+
   socket.on("cancelTrade", ({ tradeId }) => {
     const room = getRoom(socket);
     if (!room) return;

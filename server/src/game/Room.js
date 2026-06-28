@@ -565,7 +565,10 @@ export class Room {
     return !owned.houses && !owned.mortgaged;
   }
 
-  proposeTrade(fromId, { toId, offerProperties = [], offerMoney = 0, requestProperties = [], requestMoney = 0 }) {
+  // Shared validation for any new trade, whether it's a fresh proposal or a
+  // counter-offer replacing one. Returns { trade } on success, { error } otherwise --
+  // never mutates this.trades itself, so callers decide what to do with the result.
+  buildTrade(fromId, { toId, offerProperties = [], offerMoney = 0, requestProperties = [], requestMoney = 0 }) {
     const fromPlayer = this.playerById(fromId);
     const toPlayer = this.playerById(toId);
     if (!fromPlayer || fromPlayer.bankrupt || fromPlayer.left) return { error: "You can't trade right now" };
@@ -582,19 +585,33 @@ export class Room {
     if (!requestProperties.every((id) => this.isTradeable(id, toId))) {
       return { error: "You can only request undeveloped properties they own" };
     }
-
-    const trade = {
-      id: nanoid(),
-      fromId,
-      toId,
-      offerProperties,
-      offerMoney,
-      requestProperties,
-      requestMoney,
+    return {
+      trade: { id: nanoid(), fromId, toId, offerProperties, offerMoney, requestProperties, requestMoney },
     };
-    this.trades.push(trade);
-    this.pushLog(`${fromPlayer.name} proposed a trade with ${toPlayer.name}.`);
-    return { ok: true, tradeId: trade.id };
+  }
+
+  proposeTrade(fromId, params) {
+    const result = this.buildTrade(fromId, params);
+    if (result.error) return result;
+    this.trades.push(result.trade);
+    this.pushLog(`${this.playerById(fromId).name} proposed a trade with ${this.playerById(result.trade.toId).name}.`);
+    return { ok: true, tradeId: result.trade.id };
+  }
+
+  // The recipient of a trade can counter instead of just accepting/declining --
+  // this replaces the original offer with a new one in the opposite direction
+  // (counterer becomes fromId, original proposer becomes toId), going through the
+  // exact same validation a fresh proposal would.
+  counterTrade(playerId, tradeId, params) {
+    const original = this.trades.find((t) => t.id === tradeId && t.toId === playerId);
+    if (!original) return { error: "Trade not found" };
+    const result = this.buildTrade(playerId, { ...params, toId: original.fromId });
+    if (result.error) return result;
+    this.trades = this.trades.filter((t) => t.id !== tradeId);
+    result.trade.counterOf = tradeId;
+    this.trades.push(result.trade);
+    this.pushLog(`${this.playerById(playerId).name} countered ${this.playerById(original.fromId).name}'s trade offer.`);
+    return { ok: true, tradeId: result.trade.id };
   }
 
   respondTrade(playerId, tradeId, accept) {
