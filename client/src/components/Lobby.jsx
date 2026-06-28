@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { socket } from "../socket";
+import { saveSession } from "../session";
 
 export default function Lobby({ onJoined }) {
   const [name, setName] = useState("");
@@ -13,7 +14,8 @@ export default function Lobby({ onJoined }) {
     socket.emit("createRoom", { name: name.trim() }, (res) => {
       setBusy(false);
       if (res?.error) return setError(res.error);
-      onJoined();
+      saveSession(res);
+      onJoined(res.playerId);
     });
   }
 
@@ -24,7 +26,8 @@ export default function Lobby({ onJoined }) {
     socket.emit("joinRoom", { code: code.trim(), name: name.trim() }, (res) => {
       setBusy(false);
       if (res?.error) return setError(res.error);
-      onJoined();
+      saveSession(res);
+      onJoined(res.playerId);
     });
   }
 

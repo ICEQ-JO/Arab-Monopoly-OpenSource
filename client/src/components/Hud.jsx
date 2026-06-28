@@ -1,6 +1,6 @@
 import { socket } from "../socket";
 
-export default function Hud({ state, myId }) {
+export default function Hud({ state, myId, onLeave }) {
   const me = state.players.find((p) => p.id === myId);
   const current = state.players[state.turnIndex];
   const isMyTurn = current?.id === myId;
@@ -16,7 +16,12 @@ export default function Hud({ state, myId }) {
   return (
     <div className="hud">
       <div className="hud-section">
-        <h3>Room {state.code}</h3>
+        <div className="room-header">
+          <h3>Room {state.code}</h3>
+          <button className="leave-btn" onClick={onLeave}>
+            Leave
+          </button>
+        </div>
         {!state.started && (
           <div>
             <p>Waiting for players ({state.players.length}/6)...</p>
@@ -94,6 +99,7 @@ export default function Hud({ state, myId }) {
               <span className="p-balance">${p.balance}</span>
               {p.inHolding && <span className="badge">in holding</span>}
               {p.bankrupt && <span className="badge">bankrupt</span>}
+              {!p.connected && !p.bankrupt && <span className="badge badge-warn">disconnected</span>}
             </li>
           ))}
         </ul>

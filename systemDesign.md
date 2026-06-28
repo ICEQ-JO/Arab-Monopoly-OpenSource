@@ -49,8 +49,11 @@ display results.
 One `Room` instance per active game (keyed by room code).
 
 **State held per room:**
-- `players[]` — `{ id, name, color, balance, position, inHolding,
-  holdingTurns, holdingFreeCard, bankrupt, properties[] }`
+- `players[]` — `{ id, token, name, color, connected, balance, position,
+  inHolding, holdingTurns, holdingFreeCard, bankrupt, properties[] }`.
+  `id` is a stable identity (nanoid) independent of any socket — see §2.4.
+  `token` is a private secret used only to authorize a reconnect; it is
+  stripped before the state is ever broadcast (`toState()` omits it).
 - `ownership{}` — `tileId -> { ownerId, houses }` (sparse; only owned tiles
   have entries)
 - `turnIndex`, `started`, `winnerId`
@@ -95,18 +98,63 @@ Thin glue only — no game logic. Each socket event handler calls the matching
 `Room` method, then `broadcastState(roomCode)` re-serializes and emits
 `state` to every socket in that room. Rooms live in an in-memory `Map<code,
 Room>` (module-level state); nothing is persisted to disk or a database, so
-a server restart drops all active games. Player identity = socket id, so a
-page refresh currently disconnects the player from the room (no reconnect
-support yet — see §6).
+a server restart drops all active games.
+
+**Identity model (decoupled from `socket.id`):** a player's stable identity
+is a server-generated `playerId` (nanoid), not their socket id — sockets
+come and go (refresh, network blip, reconnect), identities don't. Two
+module-level maps translate between them per connection:
+- `socketToRoom: Map<socket.id, roomCode>`
+- `socketToPlayer: Map<socket.id, playerId>`
+
+`createRoom`/`joinRoom` mint a fresh `{ playerId, token }` pair (both
+nanoid) and return them in the ack — `token` is a write-once secret the
+client must hold onto (localStorage) to reclaim that seat later. Every
+other handler resolves the caller's `playerId` via `socketToPlayer.get(socket.id)`
+before calling into `Room` — `Room` methods never see a raw socket id.
+
+**Reconnect (`rejoinRoom` event):** client sends back `{ code, playerId,
+token }`. Server looks up the room, calls `room.verifyToken(playerId,
+token)`, and on success re-binds the *new* socket to the *existing*
+`playerId` (updates both maps, re-joins the Socket.io room channel) and
+flips `connected: true` on that player. No game state is touched — same
+balance, position, properties, turn order.
+
+**Disconnect handling:** on `disconnect`, the server looks at
+`room.started`:
+- **not started** (still in the lobby) → no reason to hold a seat for a
+  game that hasn't begun, so the player is removed outright via
+  `room.removePlayer()` (host reassignment happens here too, see below).
+- **started** → the player is *not* removed; `room.setConnected(playerId,
+  false)` just flags them, the room/turn order/ownership are untouched, and
+  they can rejoin at any time with their saved token.
+- There is **no abandonment timeout** — a disconnected player's seat is
+  held indefinitely once the game has started. If it's their turn, the
+  game will simply wait for them to come back (see §6).
+
+**Host reassignment:** `hostId` is a `playerId`, not a socket id. If the
+host disconnects pre-start and is removed, `Room.removePlayer` reassigns
+`hostId` to the next remaining player automatically.
 
 ## 3. Client (`client/src/`)
 
 - `socket.js` — one shared `socket.io-client` instance for the whole app.
-- `App.jsx` — top-level: shows `Lobby` until `onJoined` fires, then listens
-  for the `state` socket event and re-renders `Board` + `Hud` with whatever
-  was last received. Holds no derived game state of its own.
-- `components/Lobby.jsx` — create-room / join-room form, calls
-  `createRoom`/`joinRoom` with an ack callback.
+- `session.js` — thin localStorage wrapper (`saveSession`/`loadSession`/
+  `clearSession`) for the single key holding `{ code, playerId, token }`.
+  This is the only client-side persistence in the app.
+- `App.jsx` — top-level: on every socket `connect` event (first connect
+  *and* any auto-reconnect), checks `loadSession()` and, if present,
+  immediately emits `rejoinRoom` before showing anything else (a brief
+  "Reconnecting..." screen covers this). If there's no saved session, or
+  the rejoin is rejected (expired/invalid → `clearSession()` is called),
+  falls through to `Lobby`. Once joined, listens for the `state` event and
+  re-renders `Board` + `Hud` with whatever was last received; also tracks
+  the live `socket.connected` flag to show a "Connection lost..." banner.
+  Holds no derived game state of its own — `myId` is the stable `playerId`
+  returned by the server, never `socket.id`.
+- `components/Lobby.jsx` — create-room / join-room form. On a successful
+  ack from `createRoom`/`joinRoom`, calls `saveSession(res)` before
+  notifying `App` — so the very first join already has a durable session.
 - `components/Board.jsx` — `getGridPos(i)` maps each of the 32 tile indices
   onto a 9×9 CSS grid perimeter (tiles 0/8/16/24 are the four corners).
   Purely presentational: reads `board`, `ownership`, `players`,
@@ -122,8 +170,9 @@ support yet — see §6).
 **Client → Server**
 | Event | Payload | Notes |
 |---|---|---|
-| `createRoom` | `{ name }` | ack: `{ ok, code }` or `{ error }` |
-| `joinRoom` | `{ code, name }` | ack: `{ ok, code }` or `{ error }`; rejects if started/full |
+| `createRoom` | `{ name }` | ack: `{ ok, code, playerId, token }` or `{ error }` |
+| `joinRoom` | `{ code, name }` | ack: `{ ok, code, playerId, token }` or `{ error }`; rejects if started/full |
+| `rejoinRoom` | `{ code, playerId, token }` | ack: `{ ok, code, playerId, token }` or `{ error }`; rebinds this socket to an existing player |
 | `startGame` | — | host-only, requires ≥2 players |
 | `rollDice` | — | current-player-only; rejected if `pendingAction` set |
 | `buyProperty` | — | resolves `pendingAction: awaitBuy` |
@@ -163,12 +212,23 @@ grows much larger or tick rate increases.
 - **Decks reshuffle on exhaustion**, not after every draw (cards drawn don't
   recirculate until the deck runs out).
 - **No persistence layer** — rooms are pure in-memory JS objects.
+- **Player identity ≠ socket id** — `playerId` (public) + `token` (private,
+  never broadcast) are the durable identity; `socket.id` is just whichever
+  transport happens to be carrying that player right now. This is what
+  makes reconnect possible without touching any game-state shape.
+- **No abandonment timeout** — once a game has started, a disconnected
+  player's seat is held forever (or until they rejoin). Simpler than
+  building a grace-period/eviction timer, at the cost of a game being able
+  to stall indefinitely on an absent player's turn (see gap below).
 
 ## 6. Known gaps (not yet built)
 - Player-to-player trading
 - Mortgaging properties
 - Auctions when a player declines to buy
-- Reconnect handling (refresh = dropped from room; would need a
-  player-identity token independent of socket id, stored client-side and
-  sent back on reconnect to re-bind to the existing `Room` player entry)
 - Persistent rooms (everything is wiped on server restart)
+- Abandonment handling: nothing currently auto-skips or forfeits a
+  disconnected player's turn, so a player who never reconnects mid-game
+  can stall the room indefinitely. A reasonable next step would be an
+  inactivity timer that auto-ends a disconnected player's turn (or, after
+  a longer grace period, marks them bankrupt) — `Room.setConnected` is
+  already the hook point to start/clear such a timer from.

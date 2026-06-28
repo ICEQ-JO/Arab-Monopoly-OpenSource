@@ -9,6 +9,75 @@ in the same pass.
 
 ---
 
+## Pass 2 — 2026-06-28 — Reconnect handling
+
+**Goal:** let a player survive a refresh, tab close/reopen, or transient
+network drop without losing their seat, balance, or properties — the top
+item flagged as a gap after Pass 1.
+
+**What was done:**
+- Decoupled player identity from `socket.id`. Each player now gets a
+  server-generated `playerId` (public, broadcast in state) and a `token`
+  (private, write-once secret, stripped from every `toState()` broadcast)
+  on `createRoom`/`joinRoom` — `server/src/game/Room.js`, `server/src/index.js`.
+- Added `Room.setConnected()` (flips a `connected` flag + logs it) and
+  `Room.verifyToken()` (checks a reconnect attempt's token against the
+  stored one) — both pure additions, no existing methods changed shape.
+- Added a `rejoinRoom` socket event: given `{ code, playerId, token }`, it
+  re-binds the new socket to the existing player and flips
+  `connected: true`, without touching any game state (balance, position,
+  turn order, ownership all untouched).
+- Changed `disconnect` handling to branch on `room.started`: pre-start, a
+  disconnecting player is still just removed (no reason to hold a lobby
+  seat); once the game has started, they're marked `connected: false`
+  instead of being removed, so their turn order and properties survive
+  until they come back.
+- Added host reassignment in `Room.removePlayer` (if the host is removed
+  pre-start, the next remaining player becomes host) — previously the host
+  leaving the lobby left `hostId` dangling.
+- Client: added `client/src/session.js` (localStorage wrapper for
+  `{ code, playerId, token }`). `App.jsx` now attempts `rejoinRoom` on every
+  socket `connect` event (covers both first load and any underlying
+  socket.io reconnect) before falling back to the `Lobby` screen, and
+  tracks `socket.connected` to show a "Connection lost..." banner.
+  `Hud.jsx` got a "disconnected" badge per player and a "Leave" button that
+  clears the saved session.
+- Smoke-tested with a scripted 3-socket scenario (written to a temp file
+  in `client/`, deleted after): create+join+start, force-disconnect one
+  player's socket, confirm the room keeps them at `connected: false`
+  without removing them or touching the game, reconnect with a *new*
+  socket using the saved `{code, playerId, token}`, confirm
+  `connected: true` again with balance/position intact, and confirm a
+  forged token is rejected with `{ error: "Invalid session" }`. All passed.
+
+**Why these calls:**
+- `playerId` + `token` instead of just trusting a client-supplied id: a
+  client-chosen identity with no secret would let anyone claim anyone
+  else's seat by guessing/reusing a `playerId` (which is broadcast to every
+  client in the room via `toState()`). The `token` is the only thing that
+  proves continuity, and it's never sent to anyone but its owner.
+- No abandonment/eviction timer for now: simplest correct behavior for a
+  casual game between friends is "your seat is yours until you come back."
+  Building a timeout/auto-forfeit system is real added complexity
+  (introduces a new failure mode: kicking someone whose wifi blipped for 10
+  seconds) and wasn't asked for — logged as a gap instead of building it
+  speculatively.
+- Pre-start disconnects still remove the player outright (rather than also
+  marking them `connected: false`): a lobby seat for a game that hasn't
+  begun isn't worth holding open — the player can just rejoin with a fresh
+  `createRoom`/`joinRoom`/`joinRoom` flow, no reconnect token needed.
+
+**Known gaps left for later:** no auto-skip/forfeit for a disconnected
+player whose turn comes up (the room just waits); everything else from
+Pass 1's gap list (trading, mortgaging, auctions, persistence) is still
+open.
+
+**State at end of pass:** server and client both manually verified via the
+scripted reconnect test above; dev server process stopped afterward, no
+long-running processes left behind.
+
+---
+
 ## Pass 1 — 2026-06-28 — Initial build: end-to-end MVP
 
 **Goal:** stand up a playable real-time multiplayer property-trading game

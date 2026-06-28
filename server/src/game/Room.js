@@ -24,13 +24,15 @@ export class Room {
     this.winnerId = null;
   }
 
-  addPlayer(id, name) {
+  addPlayer(id, name, token) {
     if (this.players.find((p) => p.id === id)) return;
     const color = PLAYER_COLORS[this.players.length % PLAYER_COLORS.length];
     this.players.push({
       id,
+      token,
       name,
       color,
+      connected: true,
       balance: STARTING_BALANCE,
       position: 0,
       inHolding: false,
@@ -46,6 +48,21 @@ export class Room {
     for (const tileId of Object.keys(this.ownership)) {
       if (this.ownership[tileId].ownerId === id) delete this.ownership[tileId];
     }
+    if (this.hostId === id && this.players.length > 0) {
+      this.hostId = this.players[0].id;
+    }
+  }
+
+  setConnected(id, connected) {
+    const player = this.playerById(id);
+    if (!player) return;
+    player.connected = connected;
+    this.pushLog(`${player.name} ${connected ? "reconnected" : "disconnected"}.`);
+  }
+
+  verifyToken(id, token) {
+    const player = this.playerById(id);
+    return !!player && player.token === token;
   }
 
   currentPlayer() {
@@ -335,7 +352,7 @@ export class Room {
       hostId: this.hostId,
       started: this.started,
       turnIndex: this.turnIndex,
-      players: this.players,
+      players: this.players.map(({ token, ...pub }) => pub),
       ownership: this.ownership,
       log: this.log.slice(0, 20),
       lastRoll: this.lastRoll,
