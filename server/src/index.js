@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import cors from "cors";
 import { nanoid } from "nanoid";
 import { Room, generateRoomCode } from "./game/Room.js";
+import { loadSnapshots, saveSnapshots } from "./persistence.js";
 
 const PORT = process.env.PORT || 4000;
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:5173";
@@ -22,10 +23,32 @@ const rooms = new Map();
 const socketToRoom = new Map();
 const socketToPlayer = new Map();
 
+// Restore any rooms that were active when the server last shut down. A bad/missing
+// file just means an empty object -- nothing to restore, normal cold start.
+for (const snapshot of Object.values(loadSnapshots())) {
+  try {
+    const room = Room.fromSnapshot(snapshot);
+    room.notify = () => broadcastState(room.code);
+    rooms.set(room.code, room);
+  } catch (err) {
+    console.error(`Failed to restore room ${snapshot?.code}:`, err.message);
+  }
+}
+if (rooms.size > 0) {
+  console.log(`Restored ${rooms.size} room(s) from disk.`);
+}
+
+function persistRooms() {
+  const snapshots = {};
+  for (const [code, room] of rooms) snapshots[code] = room.toSnapshot();
+  saveSnapshots(snapshots);
+}
+
 function broadcastState(roomCode) {
   const room = rooms.get(roomCode);
   if (!room) return;
   io.to(roomCode).emit("state", room.toState());
+  persistRooms();
 }
 
 function bindSocket(socket, roomCode, playerId) {
@@ -233,6 +256,7 @@ function cleanupIfDone(room) {
   if (allDone) {
     room.clearTurnTimer();
     rooms.delete(room.code);
+    persistRooms();
   } else {
     broadcastState(room.code);
   }
@@ -241,3 +265,13 @@ function cleanupIfDone(room) {
 httpServer.listen(PORT, () => {
   console.log(`Fortune City server listening on port ${PORT}`);
 });
+
+// Every state-changing event already persists synchronously via broadcastState,
+// so there's no real "unsaved changes" window -- this is just an explicit final
+// flush before exiting on a clean shutdown (e.g. a deploy restart).
+function shutdown() {
+  persistRooms();
+  process.exit(0);
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

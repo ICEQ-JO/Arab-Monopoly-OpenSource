@@ -723,6 +723,64 @@ export class Room {
       board: BOARD,
     };
   }
+
+  // Full private save-to-disk dump -- unlike toState(), this keeps each player's
+  // token (needed so a rejoinRoom after a restart can still prove identity) and
+  // drops only what genuinely can't survive a restart: live setTimeout handles.
+  toSnapshot() {
+    return {
+      code: this.code,
+      hostId: this.hostId,
+      started: this.started,
+      turnIndex: this.turnIndex,
+      players: this.players.map(({ graceTimer, ...rest }) => rest),
+      ownership: this.ownership,
+      surpriseDeck: this.surpriseDeck,
+      treasureDeck: this.treasureDeck,
+      log: this.log,
+      lastRoll: this.lastRoll,
+      lastCard: this.lastCard,
+      pendingAction: this.pendingAction,
+      winnerId: this.winnerId,
+      trades: this.trades,
+      auctions: this.auctions,
+    };
+  }
+
+  // Rebuilds a Room from a toSnapshot() dump (e.g. after a server restart). Two
+  // things can't simply be restored as-is, since they depended on timer handles
+  // that no longer exist:
+  //  - Anyone mid-disconnect-grace when the snapshot was taken has no way to
+  //    resume that exact window post-restart, so the restart itself is treated
+  //    as the grace period running out.
+  //  - The current player's turn timer is re-armed for a fresh full duration
+  //    rather than trying to preserve exactly how much time was left.
+  static fromSnapshot(snapshot) {
+    const room = new Room(snapshot.code, snapshot.hostId);
+    room.started = snapshot.started;
+    room.turnIndex = snapshot.turnIndex;
+    room.players = snapshot.players.map((p) => ({ ...p, graceTimer: null }));
+    room.ownership = snapshot.ownership;
+    room.surpriseDeck = snapshot.surpriseDeck;
+    room.treasureDeck = snapshot.treasureDeck;
+    room.log = snapshot.log;
+    room.lastRoll = snapshot.lastRoll;
+    room.lastCard = snapshot.lastCard;
+    room.pendingAction = snapshot.pendingAction;
+    room.winnerId = snapshot.winnerId;
+    room.trades = snapshot.trades || [];
+    room.auctions = snapshot.auctions || [];
+
+    for (const player of room.players) {
+      if (!player.connected && !player.left && !player.bankrupt) {
+        room.kickPlayer(player.id, "was disconnected when the server restarted and was removed from the game");
+      }
+    }
+    if (room.started && !room.winnerId) {
+      room.startTurnTimer();
+    }
+    return room;
+  }
 }
 
 export function generateRoomCode() {

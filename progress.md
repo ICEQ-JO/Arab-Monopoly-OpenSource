@@ -9,6 +9,97 @@ in the same pass.
 
 ---
 
+## Pass 9 — 2026-06-28 — Persistent rooms across server restarts
+
+**Goal:** the last item from the original feature gap list — a server
+restart used to wipe every active game. Make rooms survive that.
+
+**What was done:**
+- Added `Room.toSnapshot()` — a full private dump of everything needed to
+  rebuild a room, unlike the already-existing `toState()` (which is the
+  *public broadcast* shape and deliberately strips secrets). Critically,
+  `toSnapshot()` **keeps each player's `token`** — without it, nobody
+  could `rejoinRoom` after a restart, since that's the only thing that
+  proves continuity of identity. The only things it drops are live
+  `setTimeout` handles (`graceTimer`), which can't survive serialization
+  at all.
+- Added `Room.fromSnapshot(snapshot)` (static) to rebuild a live `Room`
+  from that dump. Two things needed real decisions, not just a direct
+  copy: a player who was mid-disconnect-grace when the snapshot was taken
+  has no way to resume that exact countdown post-restart, so the restart
+  itself is treated as the grace window expiring (`kickPlayer` is called
+  for them); and the current player's turn timer is re-armed at a fresh
+  full 4 minutes rather than trying to preserve exact remaining
+  wall-clock time, since the old timer handle is gone and there's no
+  reason to engineer clock-drift-safe persistence for a once-per-restart
+  edge case.
+- Added `server/src/persistence.js`: `loadSnapshots()`/`saveSnapshots()`
+  reading/writing a single `server/data/rooms.json` file, write-then
+  -rename so a crash mid-write can't corrupt the file. Added
+  `server/data/` to `.gitignore` — persisted game state shouldn't be
+  committed.
+- `index.js`: on startup, loads and restores every saved room (each in its
+  own `try/catch` so one corrupted entry can't take down the whole
+  server) before accepting connections. `broadcastState()` now also calls
+  a new `persistRooms()` after every emit — i.e. after literally any
+  state-changing event, the entire `rooms` map is re-serialized and
+  written to disk. `cleanupIfDone` persists immediately on room deletion
+  too, so a finished/abandoned room doesn't reappear on the next restart.
+  Added `SIGINT`/`SIGTERM` handlers that flush once more before exiting
+  (mostly belt-and-suspenders, since the always-save-after-every-change
+  approach means there's essentially never an actual unsaved-changes
+  window).
+- Verified server-side with a direct `Room` unit test (not committed,
+  round-tripped through `JSON.parse(JSON.stringify(...))` to catch
+  anything that wouldn't actually survive real serialization): ownership
+  and balances survive a snapshot/restore round-trip; a player who was
+  mid-grace at save time is correctly kicked on restore; tokens survive
+  (confirming a post-restart `rejoinRoom` would still work); a fresh turn
+  timer gets armed. One assertion in the first draft of the test was
+  itself wrong — it expected the turn to simply advance to the other
+  player after a mid-grace kick during restore, but in a 2-player room
+  that should (and did) immediately declare the survivor the winner via
+  the existing `checkWinner` logic, same as any other kick down to one
+  active player. Fixed the test, not the code — this was correct behavior
+  the first time, the test just hadn't accounted for it.
+
+**Why these calls:**
+- Save on *every* state change rather than on an interval: this game has
+  no high-frequency tick loop — actions happen at human conversational
+  pace — so the "is this too expensive" question that would justify
+  debouncing doesn't really apply, and always-consistent on-disk state is
+  simpler to reason about than "how stale could the file be right now."
+- Kick mid-grace players on restore rather than trying to let them resume:
+  preserving an exact countdown across a restart would mean persisting
+  wall-clock deadlines and reasoning about clock drift between the
+  process that saved and the process that's loading — real complexity for
+  a case (server restarts happen to land exactly during someone's 20
+  -second grace window) that's rare enough not to justify it. Worth a
+  documented gap, not a built feature.
+- A single flat `rooms.json` rather than per-room files or a database:
+  matches the actual current scale (an in-memory `Map`, casual concurrent
+  game count) — splitting into per-room storage or introducing a real
+  database is real infrastructure for a scaling problem that doesn't
+  exist yet. Logged as a gap for if/when it does.
+
+**Known gaps left for later:** no exact-remaining-time preservation for a
+mid-grace disconnect or the current turn timer across a restart; single
+-file storage that rewrites everything on every change; no snapshot
+schema versioning (a future field-shape change could fail to restore an
+old file, though it fails *safely* — per-room `try/catch` skips it rather
+than crashing). This closes out every item from the original feature gap
+list.
+
+**State at end of pass:** server-side snapshot/restore logic verified via
+a direct `Room` unit test (temporary file, deleted before committing,
+JSON-round-tripped to simulate real serialization); no dev server was
+needed since this pass's logic is entirely server-side. `systemDesign.md`
+updated in place — new §2.5 for `persistence.js`, updated §2.3/§2.4
+descriptions, new invariants, and gaps (removed the now-resolved
+"Persistent rooms" line, added several persistence-specific ones).
+
+---
+
 ## Pass 8 — 2026-06-28 — Trade counter-offers
 
 **Goal:** close the last gap flagged from the trading work — declining an

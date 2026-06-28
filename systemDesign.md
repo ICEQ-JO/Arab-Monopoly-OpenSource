@@ -283,10 +283,12 @@ active player (including whoever just declined).
 
 ### 2.4 `index.js` — Socket.io wiring
 Thin glue only — no game logic. Each socket event handler calls the matching
-`Room` method, then `broadcastState(roomCode)` re-serializes and emits
-`state` to every socket in that room. Rooms live in an in-memory `Map<code,
-Room>` (module-level state); nothing is persisted to disk or a database, so
-a server restart drops all active games.
+`Room` method, then `broadcastState(roomCode)` re-serializes, emits
+`state` to every socket in that room, **and persists every room to disk**
+(see §2.5) — so unlike earlier passes, a server restart no longer drops
+active games. Rooms live in an in-memory `Map<code, Room>` (module-level
+state) that's rebuilt from disk on startup before the server starts
+accepting connections.
 
 **Identity model (decoupled from `socket.id`):** a player's stable identity
 is a server-generated `playerId` (nanoid), not their socket id. Two
@@ -338,9 +340,51 @@ otherwise — just a different log message than a disconnect.
 
 **Room cleanup:** after any leave/disconnect, `cleanupIfDone(room)` checks
 whether the room is now empty (lobby case) or every remaining player is
-`bankrupt || left` (in-progress case) and, if so, clears the turn timer and
-deletes the room from the `rooms` map — otherwise it broadcasts the new
-state as usual.
+`bankrupt || left` (in-progress case) and, if so, clears the turn timer,
+deletes the room from the `rooms` map, and persists immediately (so the
+deleted room doesn't reappear on the next restart) — otherwise it
+broadcasts the new state as usual.
+
+### 2.5 `persistence.js` — surviving a server restart
+A small, deliberately dumb module: `loadSnapshots()` reads
+`server/data/rooms.json` (returns `{}` if missing or unparsable — a bad
+file just means a cold start, never a crash) and `saveSnapshots(obj)`
+writes it back, via a temp-file-then-rename so a crash mid-write can't
+leave a half-written, unparsable file behind. No database, no schema
+migrations, no partial updates — the whole `rooms` map is serialized and
+overwritten as one JSON blob every time anything changes.
+
+**When it's called:**
+- **On startup**, before the server starts accepting connections:
+  `index.js` calls `loadSnapshots()`, and for each entry calls
+  `Room.fromSnapshot()` (§2.3) to rebuild a live `Room`, wires its
+  `notify` callback, and adds it to the `rooms` map. Each restoration is
+  wrapped in its own `try/catch` — one corrupted or schema-mismatched room
+  entry logs an error and is skipped rather than taking down the whole
+  server's startup.
+- **After every `broadcastState()` call** — i.e. after literally any
+  state-changing socket event — `persistRooms()` re-serializes every room
+  via `toSnapshot()` and overwrites the file. There's no debouncing or
+  batching: at this game's pace (human-paced turns, not a tight tick
+  loop), writing a small JSON file on every action is cheap enough not to
+  matter, and it means there's never a window where the in-memory state
+  and the on-disk state disagree.
+- **On room deletion** (`cleanupIfDone`, §2.4) — same `persistRooms()`
+  call, so a room that's actually over gets removed from the file
+  immediately rather than lingering until the next unrelated write.
+- **On `SIGINT`/`SIGTERM`** — an explicit final `persistRooms()` before
+  `process.exit(0)`. Given the point above, this is mostly belt-and
+  -suspenders (there's essentially never an unsaved-changes window to
+  begin with) rather than a load-bearing part of the design.
+
+**What does *not* survive a restart as-is** (see `Room.fromSnapshot` in
+§2.3 for the actual mechanics): a player who was mid-disconnect-grace
+when the snapshot was taken gets kicked on restore rather than resuming
+their countdown (there's no way to know how much of the 20 seconds was
+left, and no socket is bound to them yet anyway), and the current
+player's turn timer restarts at a fresh full 4 minutes rather than
+preserving the exact remaining time. Both are deliberate simplifications,
+not bugs — see §5.
 
 **Host reassignment:** `hostId` is a `playerId`, not a socket id. If the
 host is removed (pre-start `removePlayer`, or `kickPlayer` mid-game),
@@ -559,9 +603,28 @@ grows much larger or tick rate increases.
 - **Mortgaging waives rent entirely rather than reducing it.** Simpler
   than a partial-rent rule, and matches the usual convention that a
   mortgaged property generates no income for its owner until it's paid off.
+- **Persistence is "always-save, no debounce," not "save periodically."**
+  Every state-changing event re-serializes and overwrites the entire
+  `rooms.json` file. At this game's pace that's cheap and means in-memory
+  state and on-disk state are never out of sync — there's no batching
+  window where a crash could lose an action that already happened.
+- **A snapshot restore treats the restart itself as the disconnect grace
+  window expiring**, for anyone who was mid-grace when the snapshot was
+  taken — there's no way to know how much of their 20 seconds was actually
+  left, so the simplest correct choice is to just kick them rather than
+  guess. The current player's turn timer similarly restarts at a fresh
+  full 4 minutes rather than trying to preserve exact remaining time —
+  tracking "how much time was left" durably would mean persisting
+  wall-clock deadlines and reasoning about clock drift across a restart,
+  for a edge case (server restarting mid-turn) that doesn't need that
+  precision.
+- **Tokens are persisted in plaintext on disk**, same as they already live
+  in plaintext in memory — no new exposure introduced, just an explicit
+  acknowledgment that "secret" here means "not broadcast to other
+  players," not "encrypted at rest." Fine for a casual game between
+  friends; would need revisiting for anything more sensitive.
 
 ## 6. Known gaps (not yet built)
-- Persistent rooms (everything is wiped on server restart)
 - The grace window is a single fixed 20s for everyone, with no visibility
   into it for other players beyond a generic "reconnecting..." badge —
   there's no shared countdown showing exactly how much of the window is
@@ -594,3 +657,23 @@ grows much larger or tick rate increases.
   -bidder instead of falling back to the next-highest actual bid, since
   bid history isn't tracked. In practice this just means the auction
   re-opens from scratch rather than resuming at the second-best offer.
+- A mid-disconnect-grace player loses their seat on a server restart even
+  if they would have reconnected well within their 20-second window —
+  there's no way to distinguish "the server happened to restart during my
+  grace period" from "I'm genuinely gone," so it's treated the same as the
+  window expiring. Rare in practice (restarts aren't frequent, and the
+  grace window is short), but a real edge case.
+- The current player's turn timer resets to a fresh 4 minutes on restart
+  rather than preserving exact remaining time — someone who'd used 3:50 of
+  their 4 minutes right before a restart gets a brand new 4:00 afterward.
+  A minor, one-time grace per restart, not something abusable repeatedly.
+- `rooms.json` is a single flat file holding every room — fine at the
+  scale of a few concurrent casual games, but it means every single state
+  change rewrites *all* rooms' data, not just the one that changed. Would
+  need splitting into per-room files (or a real database) before this
+  scales past a small number of simultaneous games.
+- No data migration story: if a future pass changes a `Room` field's
+  shape, an old `rooms.json` from before that change would either fail to
+  restore (caught by the per-room `try/catch` in `index.js`, so it fails
+  safely rather than crashing) or restore with a now-stale shape. No
+  versioning scheme exists yet for the snapshot format.
