@@ -99,9 +99,11 @@ rollDice(playerId)
                  surprise/treasure        -> drawCard -> applyCardEffect
                  go_to_holding            -> sendToHolding
             -> checkBankruptcy(player)
-  -> sets canRollAgain = rolledDoubles && !wasInHolding (a bonus roll, but not for
-     doubles that just escaped the Holding Pen, and not on the 3rd-in-a-row case
-     above, which already returned early)
+  -> sets canRollAgain = rolledDoubles && !wasInHolding && !player.inHolding
+     (a bonus roll, but not for doubles that just escaped the Holding Pen,
+     not on the 3rd-in-a-row case above which already returned early, and
+     not if *this same move* just sent them to the Holding Pen via the
+     "go to Holding" tile or a card effect)
 ```
 
 **Roll gating (`canRollAgain`) and the three-doubles rule:** the original
@@ -112,9 +114,20 @@ one. Fixed by tracking two pieces of room-level state, both reset to
 `true`/`0` at the start of every turn (`start()` and `endTurn()`):
 - `canRollAgain` — `rollDice` now rejects outright (`"You already rolled
   this turn"`) if this is `false`. It's only ever set back to `true` by
-  rolling doubles in free play (`rolledDoubles && !wasInHolding`) — rolling
-  doubles *to escape* the Holding Pen does **not** earn a bonus roll
-  (different mechanic, same word "doubles").
+  rolling doubles in free play (`rolledDoubles && !wasInHolding &&
+  !player.inHolding`) — rolling doubles *to escape* the Holding Pen does
+  **not** earn a bonus roll (different mechanic, same word "doubles"), and
+  neither does rolling doubles that happen to land the player *on* the
+  Holding Pen via the `go_to_holding` tile or a card effect within that
+  same move — this last condition specifically re-checks `player.inHolding`
+  **after** `movePlayer` runs, rather than trusting the pre-move
+  `wasInHolding` snapshot, since `movePlayer` → `resolveTile` →
+  `sendToHolding` can flip it during the call. An earlier version of this
+  fix checked only the pre-move snapshot and missed this case — same root
+  cause as the bug being fixed (a decision based on stale state instead of
+  current state), just one line further down the same method. Caught
+  during a deliberate follow-up sweep for the same pattern, not by the
+  original test suite.
 - `consecutiveDoubles` — increments on each free-play double, resets to 0
   on any non-double. Hitting 3 sends the player straight to the Holding
   Pen via `sendToHolding` *before* `movePlayer` ever runs for that roll —
@@ -459,10 +472,15 @@ the next remaining active player automatically becomes host.
   local state directly.
 - `components/Trade.jsx` — rendered in the `Hud` whenever the game is
   started and there's no winner yet. The give/get checkbox-and-coins
-  picker is its own `TradeForm` sub-component (computes tradeable tiles
-  client-side the same way the server does — owned, undeveloped — purely
-  to avoid offering something that'll just get rejected; the server
-  re-checks all of this regardless), reused in two places: the collapsible
+  picker is its own `TradeForm` sub-component (`tradeableTiles()` computes
+  tradeable tiles client-side — owned, undeveloped, **and unmortgaged** —
+  mirroring the server's `isTradeable()` purely to avoid offering
+  something that'll just get rejected; the server re-checks all of this
+  regardless, so this list is a UX nicety, never the actual authority. An
+  earlier version of this filter omitted the mortgaged check, letting the
+  form show a mortgaged property as selectable when the server would
+  always reject trading it — fixed to match the server's predicate
+  exactly), reused in two places: the collapsible
   "Propose a trade" panel (target player + the form), and an inline
   "Counter" form on each incoming offer (`IncomingTradeCard`, target fixed
   to the original proposer). Incoming offers show Accept/Decline/Counter;

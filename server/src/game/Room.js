@@ -227,8 +227,11 @@ export class Room {
     this.movePlayer(player, steps);
 
     // A bonus roll is earned only by rolling doubles in free play (not escaping the
-    // Holding Pen, and not the third-in-a-row case already handled above).
-    this.canRollAgain = rolledDoubles && !wasInHolding;
+    // Holding Pen, and not the third-in-a-row case already handled above) -- and not
+    // if this same move just sent them to the Holding Pen (landing on the "go to
+    // Holding" tile, or a card effect), re-checked here rather than trusting the
+    // pre-move wasInHolding snapshot, since movePlayer can change it.
+    this.canRollAgain = rolledDoubles && !wasInHolding && !player.inHolding;
 
     return { rolled: [d1, d2], doubles: rolledDoubles };
   }

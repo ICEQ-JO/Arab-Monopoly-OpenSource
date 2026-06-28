@@ -4,7 +4,7 @@ import { socket } from "../socket";
 function tradeableTiles(board, ownership, playerId) {
   return board.filter((t) => {
     const owned = ownership[t.id];
-    return owned?.ownerId === playerId && !owned.houses;
+    return owned?.ownerId === playerId && !owned.houses && !owned.mortgaged;
   });
 }
 

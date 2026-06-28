@@ -9,6 +9,97 @@ in the same pass.
 
 ---
 
+## Pass 11 — 2026-06-29 — Fix: two more instances of the Pass 10 bug pattern
+
+**Goal:** after fixing the extra-rolls bug in Pass 10, the user pushed
+back on treating it as a standalone fix and asked me to check for the
+underlying pattern elsewhere before moving on. Ran a targeted audit
+(stale state used after a side effect; dead/vestigial state; comments
+claiming enforcement that isn't real; missing guards between sibling
+methods; client buttons offering actions the server would reject) across
+`Room.js`, `index.js`, and the client components. Found two real,
+confirmed instances of the same root cause; everything else checked out
+clean (see below).
+
+**What was found and fixed:**
+- **Same bug, one line further down, in the same method.** Pass 10's fix
+  set `this.canRollAgain = rolledDoubles && !wasInHolding;` *after*
+  `movePlayer(player, steps)` had already run — but `movePlayer` →
+  `resolveTile` can itself call `sendToHolding` (landing on the
+  `go_to_holding` tile, or certain card effects), which sets
+  `player.inHolding = true` as a side effect of that very call. The
+  assignment only checked the **pre-move** `wasInHolding` snapshot, not
+  the player's actual current state, so a player who rolled doubles and
+  happened to land on the "go to Holding" tile that same move would
+  wrongly be granted a bonus roll despite now sitting in the Holding Pen.
+  Fixed: `this.canRollAgain = rolledDoubles && !wasInHolding &&
+  !player.inHolding;` — re-checks the live value instead of trusting the
+  snapshot. Verified with a unit test that deliberately positions a
+  player one double-roll away from the `go_to_holding` tile: confirms
+  they land in the Holding Pen, get no bonus roll, and a further roll
+  attempt is correctly rejected.
+- **Client trade-tile filter didn't match the server's.** `Trade.jsx`'s
+  `tradeableTiles()` filtered only `!owned.houses`, but the server's
+  `isTradeable()` (since Pass 6) also requires `!owned.mortgaged`. The
+  trade form could show a mortgaged property as selectable; the server
+  would always reject offering/requesting it. Fixed by adding the missing
+  `!owned.mortgaged` check to match the server's predicate exactly. Also
+  corrected `systemDesign.md`'s description of this component, which had
+  been inaccurately claiming the client filter already matched the
+  server's — it didn't, until now.
+
+**What was checked and ruled out (no fix needed):**
+- No other dead/vestigial state: every `this.x =`/`player.x =` assignment
+  in `Room.js` is read somewhere, confirmed by grepping the whole repo per
+  property name.
+- No comments falsely claiming enforcement exists elsewhere (searched for
+  "handled client-side", "TODO", "FIXME", etc. — none found making an
+  inaccurate claim).
+- `buyHouse`/`sellHouse`/`mortgageProperty`/`unmortgageProperty` all
+  consistently lack a turn/pendingAction guard — confirmed intentional
+  (managing your own properties isn't a turn action, per Pass 6) and
+  mutually consistent across all four, not an oversight in one.
+- Money-spending actions consistently check funds before deducting;
+  money-gaining actions consistently skip that check. No asymmetry.
+- All other client button gating either matches server requirements or is
+  *more* restrictive than the server (safe direction) — Build/Sell/
+  Mortgage/Buy/Decline/Trade/Auction buttons all checked individually.
+- `startGame`/`endTurn` enforce their host/turn checks in `index.js`
+  rather than inside the `Room` method itself, unlike every other action
+  (whose primary guard lives in `Room.js`). Flagged as a structural
+  inconsistency in *where* guards live — not a live bug today since
+  current callers are all correct, but logged as a gap rather than
+  silently left undocumented.
+
+**Why these calls:**
+- Treated this as a pattern-hunt, not a second isolated bug report: the
+  user's framing ("I don't think this was standalone") was a reasonable
+  challenge to the previous pass's confidence, and a targeted sweep for
+  the *specific* failure mode (stale state past a side effect) found a
+  second real instance in literally the next line of code from the first
+  fix — strong evidence the instinct was correct.
+- Fixed both confirmed findings rather than just reporting them: both
+  were clear-cut bugs with an unambiguous correct behavior (re-check
+  current state; match the server's actual predicate), not design
+  questions needing a decision.
+- Did not "fix" the `startGame`/`endTurn` guard-location inconsistency:
+  it's not a live bug (no current caller is wrong), and moving guards
+  into `Room.js` would be a structural change affecting `index.js`'s
+  responsibilities, not a bug fix — logged as a gap instead.
+
+**Known gaps left for later:** the `startGame`/`endTurn` guard-location
+inconsistency noted above (not a live bug, just inconsistent structure);
+everything else from prior passes' gap lists remains unchanged.
+
+**State at end of pass:** both fixes verified with direct `Room`/
+component-level checks (deterministic dice for the server fix, direct
+predicate comparison for the client fix); temporary test file deleted
+before committing. `systemDesign.md` updated in place, including
+correcting its own previously-inaccurate claim about the trade-tile
+filter.
+
+---
+
 ## Pass 10 — 2026-06-29 — Fix: extra rolls per turn + missing three-doubles rule
 
 **Goal:** the user asked me to verify whether a player could roll more
