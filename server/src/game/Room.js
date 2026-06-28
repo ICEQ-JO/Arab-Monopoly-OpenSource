@@ -5,6 +5,7 @@ import { SURPRISE_CARDS, TREASURE_CARDS, shuffledDeck } from "./cards.js";
 const STARTING_BALANCE = 1500;
 const HOLDING_RELEASE_RENT = 50;
 const MAX_HOLDING_TURNS = 3;
+const TURN_TIME_LIMIT_MS = 4 * 60 * 1000;
 
 const PLAYER_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6", "#1abc9c"];
 
@@ -12,7 +13,7 @@ export class Room {
   constructor(code, hostId) {
     this.code = code;
     this.hostId = hostId;
-    this.players = []; // {id, name, color, balance, position, inHolding, holdingTurns, holdingFreeCard, bankrupt, properties: [tileId]}
+    this.players = []; // {id, name, color, balance, position, inHolding, holdingTurns, holdingFreeCard, bankrupt, left, properties: [tileId]}
     this.ownership = {}; // tileId -> { ownerId, houses }
     this.started = false;
     this.turnIndex = 0;
@@ -22,27 +23,30 @@ export class Room {
     this.lastRoll = null;
     this.pendingAction = null; // { type: 'awaitBuy'|'awaitRent'..., tileId }
     this.winnerId = null;
+    this.turnTimer = null;
+    this.turnDeadline = null;
+    this.notify = null; // set by the server to broadcast state after an autonomous timeout kick
   }
 
-  addPlayer(id, name, token) {
+  addPlayer(id, name) {
     if (this.players.find((p) => p.id === id)) return;
     const color = PLAYER_COLORS[this.players.length % PLAYER_COLORS.length];
     this.players.push({
       id,
-      token,
       name,
       color,
-      connected: true,
       balance: STARTING_BALANCE,
       position: 0,
       inHolding: false,
       holdingTurns: 0,
       holdingFreeCard: false,
       bankrupt: false,
+      left: false,
       properties: [],
     });
   }
 
+  // Used only pre-start: a lobby seat for a game that hasn't begun isn't worth holding.
   removePlayer(id) {
     this.players = this.players.filter((p) => p.id !== id);
     for (const tileId of Object.keys(this.ownership)) {
@@ -53,16 +57,45 @@ export class Room {
     }
   }
 
-  setConnected(id, connected) {
-    const player = this.playerById(id);
-    if (!player) return;
-    player.connected = connected;
-    this.pushLog(`${player.name} ${connected ? "reconnected" : "disconnected"}.`);
+  // Used mid-game: disconnects, manual leaves, and turn-timeouts all forfeit the player's
+  // seat (properties released to the bank) but keep them visible in the player list.
+  kickPlayer(playerId, reasonLabel) {
+    const player = this.playerById(playerId);
+    if (!player || player.left || player.bankrupt) return;
+    const wasCurrent = this.started && this.currentPlayer()?.id === playerId;
+    for (const tileId of player.properties) {
+      delete this.ownership[tileId];
+    }
+    player.properties = [];
+    player.left = true;
+    if (this.pendingAction?.playerId === playerId) this.pendingAction = null;
+    this.pushLog(`${player.name} ${reasonLabel}.`);
+    this.checkWinner();
+    if (!this.winnerId && wasCurrent) {
+      this.endTurn();
+    }
+    if (this.hostId === playerId) {
+      const next = this.activePlayers()[0];
+      if (next) this.hostId = next.id;
+    }
   }
 
-  verifyToken(id, token) {
-    const player = this.playerById(id);
-    return !!player && player.token === token;
+  activePlayers() {
+    return this.players.filter((p) => !p.bankrupt && !p.left);
+  }
+
+  checkWinner() {
+    if (this.winnerId || !this.started) return;
+    const remaining = this.activePlayers();
+    if (remaining.length <= 1) {
+      this.clearTurnTimer();
+      if (remaining.length === 1) {
+        this.winnerId = remaining[0].id;
+        this.pushLog(`${remaining[0].name} wins the game!`);
+      } else {
+        this.pushLog("No players remaining — game over.");
+      }
+    }
   }
 
   currentPlayer() {
@@ -77,11 +110,29 @@ export class Room {
   start() {
     this.started = true;
     this.pushLog("Game started!");
+    this.startTurnTimer();
+  }
+
+  startTurnTimer() {
+    this.clearTurnTimer();
+    const player = this.currentPlayer();
+    if (!player) return;
+    this.turnDeadline = Date.now() + TURN_TIME_LIMIT_MS;
+    this.turnTimer = setTimeout(() => {
+      this.kickPlayer(player.id, "ran out of time and was removed from the game");
+      this.notify?.();
+    }, TURN_TIME_LIMIT_MS);
+  }
+
+  clearTurnTimer() {
+    if (this.turnTimer) clearTimeout(this.turnTimer);
+    this.turnTimer = null;
+    this.turnDeadline = null;
   }
 
   rollDice(playerId) {
     const player = this.currentPlayer();
-    if (!player || player.id !== playerId || player.bankrupt) return { error: "Not your turn" };
+    if (!player || player.id !== playerId || player.bankrupt || player.left) return { error: "Not your turn" };
     if (this.pendingAction) return { error: "Resolve the current action first" };
 
     const d1 = 1 + Math.floor(Math.random() * 6);
@@ -323,23 +374,20 @@ export class Room {
       }
       player.properties = [];
       this.pushLog(`${player.name} went bankrupt!`);
-      const remaining = this.players.filter((p) => !p.bankrupt);
-      if (remaining.length === 1) {
-        this.winnerId = remaining[0].id;
-        this.pushLog(`${remaining[0].name} wins the game!`);
-      }
+      this.checkWinner();
     }
   }
 
   endTurn() {
+    this.clearTurnTimer();
     this.pendingAction = null;
-    const activePlayers = this.players.filter((p) => !p.bankrupt);
-    if (activePlayers.length <= 1) return;
+    if (this.activePlayers().length <= 1) return;
     do {
       this.turnIndex = (this.turnIndex + 1) % this.players.length;
-    } while (this.players[this.turnIndex].bankrupt);
+    } while (this.players[this.turnIndex].bankrupt || this.players[this.turnIndex].left);
     this.lastRoll = null;
     this.lastCard = null;
+    this.startTurnTimer();
   }
 
   playerById(id) {
@@ -352,13 +400,14 @@ export class Room {
       hostId: this.hostId,
       started: this.started,
       turnIndex: this.turnIndex,
-      players: this.players.map(({ token, ...pub }) => pub),
+      players: this.players,
       ownership: this.ownership,
       log: this.log.slice(0, 20),
       lastRoll: this.lastRoll,
       lastCard: this.lastCard,
       pendingAction: this.pendingAction,
       winnerId: this.winnerId,
+      turnDeadline: this.turnDeadline,
       board: BOARD,
     };
   }

@@ -180,19 +180,20 @@
   color: var(--text-dim);
 }
 
-.reconnect-banner {
-  grid-column: 1 / -1;
-  background: #4a3a1a;
-  color: var(--accent);
-  border-radius: 8px;
-  padding: 8px 14px;
-  text-align: center;
-  font-size: 13px;
-}
-
 .badge-warn {
   background: #4a2a2a;
   color: #ff9a9a;
+}
+
+.turn-countdown {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 4px 0;
+}
+
+.turn-countdown-urgent {
+  color: #ff6b6b;
+  font-weight: 600;
 }
 
 .hint {

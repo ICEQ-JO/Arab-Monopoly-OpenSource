@@ -1,4 +1,24 @@
+import { useEffect, useState } from "react";
 import { socket } from "../socket";
+
+function TurnCountdown({ deadline }) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!deadline) return null;
+  const secondsLeft = Math.max(0, Math.round((deadline - now) / 1000));
+  const mins = Math.floor(secondsLeft / 60);
+  const secs = String(secondsLeft % 60).padStart(2, "0");
+  return (
+    <p className={`turn-countdown ${secondsLeft <= 30 ? "turn-countdown-urgent" : ""}`}>
+      ⏱ {mins}:{secs} left to act
+    </p>
+  );
+}
 
 export default function Hud({ state, myId, onLeave }) {
   const me = state.players.find((p) => p.id === myId);
@@ -38,6 +58,7 @@ export default function Hud({ state, myId, onLeave }) {
       {state.started && !state.winnerId && (
         <div className="hud-section">
           <h3>{isMyTurn ? "Your turn" : `${current?.name}'s turn`}</h3>
+          <TurnCountdown deadline={state.turnDeadline} />
           {state.lastRoll && (
             <p className="dice-display">
               🎲 {state.lastRoll[0]} + {state.lastRoll[1]} = {state.lastRoll[0] + state.lastRoll[1]}
@@ -91,7 +112,7 @@ export default function Hud({ state, myId, onLeave }) {
         <h3>Players</h3>
         <ul className="player-list">
           {state.players.map((p) => (
-            <li key={p.id} className={p.bankrupt ? "bankrupt" : ""}>
+            <li key={p.id} className={p.bankrupt || p.left ? "bankrupt" : ""}>
               <span className="swatch" style={{ background: p.color }} />
               <span className="p-name">
                 {p.name} {p.id === myId && "(you)"}
@@ -99,7 +120,7 @@ export default function Hud({ state, myId, onLeave }) {
               <span className="p-balance">${p.balance}</span>
               {p.inHolding && <span className="badge">in holding</span>}
               {p.bankrupt && <span className="badge">bankrupt</span>}
-              {!p.connected && !p.bankrupt && <span className="badge badge-warn">disconnected</span>}
+              {p.left && <span className="badge badge-warn">left/kicked</span>}
             </li>
           ))}
         </ul>

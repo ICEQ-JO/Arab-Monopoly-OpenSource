@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { socket } from "./socket";
-import { loadSession, clearSession } from "./session";
 import Lobby from "./components/Lobby";
 import Board from "./components/Board";
 import Hud from "./components/Hud";
@@ -10,78 +9,44 @@ function App() {
   const [joined, setJoined] = useState(false);
   const [state, setState] = useState(null);
   const [myId, setMyId] = useState(null);
-  const [rejoining, setRejoining] = useState(false);
-  const [connected, setConnected] = useState(socket.connected);
 
   useEffect(() => {
-    function attemptRejoin() {
-      const session = loadSession();
-      if (!session) return;
-      setRejoining(true);
-      socket.emit("rejoinRoom", session, (res) => {
-        setRejoining(false);
-        if (res?.error) {
-          clearSession();
-          return;
-        }
-        setMyId(res.playerId);
-        setJoined(true);
-      });
-    }
-
-    function handleConnect() {
-      setConnected(true);
-      attemptRejoin();
-    }
-    function handleDisconnect() {
-      setConnected(false);
-    }
     function handleState(s) {
       setState(s);
     }
-
-    socket.on("connect", handleConnect);
-    socket.on("disconnect", handleDisconnect);
+    function handleDisconnect() {
+      // A dropped connection forfeits the seat server-side -- there is nothing to
+      // reconnect to, so just send the player back to the lobby.
+      setJoined(false);
+      setState(null);
+      setMyId(null);
+    }
     socket.on("state", handleState);
-
-    if (socket.connected) attemptRejoin();
-
+    socket.on("disconnect", handleDisconnect);
     return () => {
-      socket.off("connect", handleConnect);
-      socket.off("disconnect", handleDisconnect);
       socket.off("state", handleState);
+      socket.off("disconnect", handleDisconnect);
     };
   }, []);
 
+  function handleJoined(playerId) {
+    setMyId(playerId);
+    setJoined(true);
+  }
+
   function handleLeave() {
-    clearSession();
+    socket.emit("leaveRoom");
     setJoined(false);
     setState(null);
     setMyId(null);
   }
 
-  if (rejoining) {
-    return (
-      <div className="lobby">
-        <p>Reconnecting...</p>
-      </div>
-    );
-  }
-
   if (!joined || !state) {
-    return (
-      <Lobby
-        onJoined={(id) => {
-          setMyId(id);
-          setJoined(true);
-        }}
-      />
-    );
+    return <Lobby onJoined={handleJoined} />;
   }
 
   return (
     <div className="game-screen">
-      {!connected && <div className="reconnect-banner">Connection lost — trying to reconnect...</div>}
       <Board board={state.board} ownership={state.ownership} players={state.players} pendingAction={state.pendingAction} />
       <Hud state={state} myId={myId} onLeave={handleLeave} />
     </div>

@@ -37,13 +37,13 @@ function bindSocket(socket, roomCode, playerId) {
 io.on("connection", (socket) => {
   socket.on("createRoom", ({ name }, cb) => {
     const playerId = nanoid();
-    const token = nanoid();
     const code = generateRoomCode();
     const room = new Room(code, playerId);
-    room.addPlayer(playerId, name || "Player", token);
+    room.notify = () => broadcastState(code);
+    room.addPlayer(playerId, name || "Player");
     rooms.set(code, room);
     bindSocket(socket, code, playerId);
-    cb?.({ ok: true, code, playerId, token });
+    cb?.({ ok: true, code, playerId });
     broadcastState(code);
   });
 
@@ -53,21 +53,25 @@ io.on("connection", (socket) => {
     if (room.started) return cb?.({ error: "Game already started" });
     if (room.players.length >= 6) return cb?.({ error: "Room full" });
     const playerId = nanoid();
-    const token = nanoid();
-    room.addPlayer(playerId, name || "Player", token);
+    room.addPlayer(playerId, name || "Player");
     bindSocket(socket, room.code, playerId);
-    cb?.({ ok: true, code: room.code, playerId, token });
+    cb?.({ ok: true, code: room.code, playerId });
     broadcastState(room.code);
   });
 
-  socket.on("rejoinRoom", ({ code, playerId, token }, cb) => {
-    const room = rooms.get(code?.toUpperCase());
-    if (!room) return cb?.({ error: "Room not found" });
-    if (!room.verifyToken(playerId, token)) return cb?.({ error: "Invalid session" });
-    bindSocket(socket, room.code, playerId);
-    room.setConnected(playerId, true);
-    cb?.({ ok: true, code: room.code, playerId, token });
-    broadcastState(room.code);
+  socket.on("leaveRoom", () => {
+    const room = getRoom(socket);
+    const playerId = getPlayerId(socket);
+    if (!room || !playerId) return;
+    if (room.started) {
+      room.kickPlayer(playerId, "left the game");
+    } else {
+      room.removePlayer(playerId);
+    }
+    socket.leave(room.code);
+    socketToRoom.delete(socket.id);
+    socketToPlayer.delete(socket.id);
+    cleanupIfDone(room);
   });
 
   socket.on("startGame", () => {
@@ -126,17 +130,13 @@ io.on("connection", (socket) => {
     if (!code) return;
     const room = rooms.get(code);
     if (!room) return;
-    if (!room.started) {
-      // Game hasn't started yet, no reason to hold the seat for a reconnect.
-      room.removePlayer(playerId);
-      if (room.players.length === 0) {
-        rooms.delete(code);
-        return;
-      }
+    if (room.started) {
+      // A lost connection mid-game forfeits the seat outright -- no grace period, no rejoin.
+      room.kickPlayer(playerId, "disconnected and was removed from the game");
     } else {
-      room.setConnected(playerId, false);
+      room.removePlayer(playerId);
     }
-    broadcastState(code);
+    cleanupIfDone(room);
   });
 });
 
@@ -147,6 +147,18 @@ function getRoom(socket) {
 
 function getPlayerId(socket) {
   return socketToPlayer.get(socket.id);
+}
+
+// Drops the room from memory once nobody is left to play (lobby emptied out,
+// or every player has been kicked/left/gone bankrupt mid-game).
+function cleanupIfDone(room) {
+  const allDone = room.players.length === 0 || room.players.every((p) => p.bankrupt || p.left);
+  if (allDone) {
+    room.clearTurnTimer();
+    rooms.delete(room.code);
+  } else {
+    broadcastState(room.code);
+  }
 }
 
 httpServer.listen(PORT, () => {

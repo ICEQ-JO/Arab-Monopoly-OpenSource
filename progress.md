@@ -9,6 +9,93 @@ in the same pass.
 
 ---
 
+## Pass 3 — 2026-06-28 — Strict kick policy + turn timer (supersedes Pass 2's reconnect)
+
+**Goal:** explicit user direction to replace Pass 2's "hold the seat and
+allow reconnect" design with a stricter policy: any disconnect kicks the
+player out immediately; a manual "Leave" action is handled as a clean,
+intentional exit (same end state, friendlier log message); and a player
+can't sit on their turn forever — a hard 4-minute server-enforced timer
+kicks them if they do.
+
+**What was done:**
+- Removed Pass 2's reconnect machinery entirely rather than leaving it
+  half-functional alongside the new policy: `Room.verifyToken`,
+  `Room.setConnected`, the `connected` player field, the `rejoinRoom`
+  socket event, `client/src/session.js`, and the
+  load-session/auto-rejoin-on-connect logic in `App.jsx` are all gone.
+  `playerId` generation stays (still useful as a stable identity decoupled
+  from `socket.id`), but `token` is gone — there's nothing left to
+  authenticate a reconnect for, since reconnecting is no longer a thing.
+- Added `Room.kickPlayer(playerId, reasonLabel)` — the single exit path now
+  used by disconnects, manual leaves, *and* turn-timeouts. Releases
+  properties to the bank, sets `left: true` (new field, sits alongside
+  `bankrupt` as a second permanent "out" state), clears a stray
+  `pendingAction`, advances the turn if the kicked player was current, and
+  reassigns host if needed.
+- Added `Room.activePlayers()` / `Room.checkWinner()` as shared helpers,
+  refactoring `checkBankruptcy`'s inline winner-check into the same path
+  `kickPlayer` uses — avoids duplicating the "who's left, did someone win"
+  logic across two call sites.
+- Added the turn timer: `TURN_TIME_LIMIT_MS = 4 * 60 * 1000`,
+  `Room.startTurnTimer()`/`clearTurnTimer()`, wired into `start()` (first
+  turn) and `endTurn()` (every subsequent turn, clearing the outgoing
+  timer and starting a fresh one). Added `Room.notify` — a callback
+  `index.js` wires to `broadcastState` — since a timer firing is the first
+  case where the server needs to push a state update **without** a
+  client request triggering it.
+- `index.js`: disconnect now calls `kickPlayer` (started) or `removePlayer`
+  (lobby) instead of flipping a `connected` flag; added a `leaveRoom`
+  event for the graceful manual-exit path; added `cleanupIfDone(room)` to
+  delete a room once everyone in it is `bankrupt || left` (previously this
+  could only happen pre-start).
+- Client: `Hud.jsx` got a `TurnCountdown` component (ticks every second
+  off `state.turnDeadline`, turns red under 30s) and swapped the
+  "disconnected" badge for "left/kicked" (now permanent, not transient).
+  `App.jsx`'s `disconnect` handler just resets straight to `Lobby` — no
+  reconnect attempt, since the server has already forfeited the seat by
+  the time the client could react.
+- Verified with a direct unit test against `Room` (not through sockets —
+  faster and more precise for this): manual leave of a non-current player
+  leaves turn order untouched; kicking the *current* player correctly
+  advances the turn while skipping already-left players, and correctly
+  detects a win once only one active player remains; a turn timer (tested
+  with a temporary `1200ms` copy of the file, deleted after) genuinely
+  fires and kicks the idle player, firing `notify`. All three passed. No
+  test files were committed.
+
+**Why these calls:**
+- Removed rather than left dormant: keeping `rejoinRoom`/`token` around
+  "just in case" while disconnects now kick immediately would have meant
+  dead code with no reachable success path (by the time a rejoin attempt
+  could arrive, the kick has already happened synchronously) — worse than
+  having it, since it's misleading about what the system actually does.
+- `kickPlayer` as one shared method for three different *triggers*
+  (disconnect / manual leave / timeout) rather than three separate
+  implementations: the actual game-state consequence is identical in all
+  three cases (forfeit seat, release properties, maybe advance turn, maybe
+  end the game) — only the human-readable reason differs, so that's the
+  only parameter that varies.
+- No grace period on disconnect: this was an explicit instruction, not a
+  default I chose — noted in systemDesign.md as a real tradeoff (a 2-second
+  wifi blip now ends your game) in case it needs revisiting later.
+- Turn timer scoped to the whole turn, not reset per sub-action (e.g. per
+  dice roll on doubles): simplest rule to state and reason about — "you
+  have 4 minutes from when it becomes your turn until it isn't anymore" —
+  versus a more permissive but more complex "4 minutes per action."
+
+**Known gaps left for later:** no brief-disconnect tolerance (see
+systemDesign.md §6); no personal "you were kicked because X" client-side
+notification beyond the shared log; trading, mortgaging, auctions, and
+persistence are all still open from Pass 1/2.
+
+**State at end of pass:** server-side logic verified via a direct `Room`
+unit test (see above); no dev servers were left running. `systemDesign.md`
+fully updated to describe the new model (old reconnect description
+removed, not just appended to).
+
+---
+
 ## Pass 2 — 2026-06-28 — Reconnect handling
 
 **Goal:** let a player survive a refresh, tab close/reopen, or transient
