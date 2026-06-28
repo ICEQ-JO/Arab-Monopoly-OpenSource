@@ -155,6 +155,13 @@ io.on("connection", (socket) => {
     broadcastState(room.code);
   });
 
+  socket.on("confirmCardMove", () => {
+    const room = getRoom(socket);
+    if (!room) return;
+    room.confirmCardMove(getPlayerId(socket));
+    broadcastState(room.code);
+  });
+
   socket.on("buyProperty", () => {
     const room = getRoom(socket);
     if (!room) return;
@@ -211,11 +218,12 @@ io.on("connection", (socket) => {
     broadcastState(room.code);
   });
 
-  socket.on("proposeTrade", (payload) => {
+  socket.on("proposeTrade", (payload, cb) => {
     const room = getRoom(socket);
-    if (!room) return;
-    room.proposeTrade(getPlayerId(socket), payload || {});
+    if (!room) return cb?.({ error: "Room not found" });
+    const result = room.proposeTrade(getPlayerId(socket), payload || {});
     broadcastState(room.code);
+    cb?.(result);
   });
 
   socket.on("respondTrade", ({ tradeId, accept }) => {
@@ -225,11 +233,12 @@ io.on("connection", (socket) => {
     broadcastState(room.code);
   });
 
-  socket.on("counterTrade", ({ tradeId, ...payload }) => {
+  socket.on("counterTrade", ({ tradeId, ...payload }, cb) => {
     const room = getRoom(socket);
-    if (!room) return;
-    room.counterTrade(getPlayerId(socket), tradeId, payload || {});
+    if (!room) return cb?.({ error: "Room not found" });
+    const result = room.counterTrade(getPlayerId(socket), tradeId, payload || {});
     broadcastState(room.code);
+    cb?.(result);
   });
 
   socket.on("cancelTrade", ({ tradeId }) => {

@@ -79,7 +79,7 @@ export default function Hud({ state, myId, onLeave }) {
           )}
           {state.lastCard && <p className="card-display">{state.lastCard.deck === "surprise" ? "❓" : "🎁"} {state.lastCard.text}</p>}
 
-          {isMyTurn && !pending && me?.inHolding && (
+          {isMyTurn && !pending && me?.inHolding && !state.lastRoll && (
             <div className="buy-prompt">
               <p>You're in the Holding Pen. Roll for doubles, or:</p>
               <div className="action-row">
@@ -91,6 +91,13 @@ export default function Hud({ state, myId, onLeave }) {
             </div>
           )}
 
+          {isMyTurn && !pending && me?.balance < 0 && (
+            <p className="hint debt-warning">
+              You're ${Math.abs(me.balance)} in debt -- mortgage, sell houses, or trade before ending your turn, or
+              you'll be disqualified.
+            </p>
+          )}
+
           {isMyTurn && !pending && (
             <div className="action-row">
               {state.canRollAgain && (
@@ -99,6 +106,17 @@ export default function Hud({ state, myId, onLeave }) {
                 </button>
               )}
               <button onClick={() => socket.emit("endTurn")}>End turn</button>
+            </div>
+          )}
+
+          {isMyTurn && pending?.type === "awaitCardMove" && (
+            <div className="buy-prompt">
+              <p>{state.lastCard?.text}</p>
+              <div className="action-row">
+                <button className="primary" onClick={() => socket.emit("confirmCardMove")}>
+                  Continue
+                </button>
+              </div>
             </div>
           )}
 
@@ -184,6 +202,7 @@ export default function Hud({ state, myId, onLeave }) {
               </span>
               <span className="p-balance">${p.balance}</span>
               {p.inHolding && <span className="badge">in holding</span>}
+              {!p.bankrupt && !p.left && p.balance < 0 && <span className="badge badge-warn">in debt</span>}
               {p.bankrupt && <span className="badge">bankrupt</span>}
               {p.left && <span className="badge badge-warn">left/kicked</span>}
               {!p.left && !p.bankrupt && !p.connected && (

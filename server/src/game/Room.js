@@ -13,6 +13,11 @@ const AUCTION_EXTEND_MS = 3 * 1000;
 
 const PLAYER_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6", "#1abc9c"];
 
+// "eight" and "eleven" start with a vowel sound; every other roll total (2-12) doesn't.
+function article(n) {
+  return n === 8 || n === 11 ? "an" : "a";
+}
+
 export class Room {
   constructor(code, hostId) {
     this.code = code;
@@ -195,6 +200,8 @@ export class Room {
     const d2 = 1 + Math.floor(Math.random() * 6);
     this.lastRoll = [d1, d2];
     const rolledDoubles = d1 === d2;
+    const total = d1 + d2;
+    this.pushLog(`${player.name} rolled ${article(total)} ${total}.`);
 
     if (wasInHolding) {
       player.holdingTurns += 1;
@@ -210,7 +217,7 @@ export class Room {
       } else {
         this.pushLog(`${player.name} is stuck in the Holding Pen (${player.holdingTurns}/${MAX_HOLDING_TURNS}).`);
         this.canRollAgain = false;
-        this.endTurn();
+        this.finishTurn(player);
         return { rolled: [d1, d2], stayedInHolding: true };
       }
     }
@@ -233,6 +240,17 @@ export class Room {
 
     const steps = d1 + d2;
     this.movePlayer(player, steps);
+
+    // A card drawn during this move might be a movement card ("advance to X" /
+    // "move N spaces") -- those don't resolve immediately, they wait on the player's
+    // explicit confirmCardMove (see below). Stash the bonus-roll context on the
+    // pendingAction itself so confirmCardMove can finish this calculation once the
+    // deferred move actually happens, instead of deciding it prematurely here.
+    if (this.pendingAction?.type === "awaitCardMove") {
+      this.pendingAction.rolledDoubles = rolledDoubles;
+      this.pendingAction.wasInHolding = wasInHolding;
+      return { rolled: [d1, d2], doubles: rolledDoubles, awaitingCardMove: true };
+    }
 
     // A bonus roll is earned only by rolling doubles in free play (not escaping the
     // Holding Pen, and not the third-in-a-row case already handled above) -- and not
@@ -296,7 +314,10 @@ export class Room {
       default:
         break;
     }
-    this.checkBankruptcy(player);
+    // Deliberately no bankruptcy check here -- a negative balance is now tolerated
+    // mid-turn so the player gets a real chance to mortgage/sell/trade their way back
+    // to solvent before it's actually enforced, at the end of *their own* turn (see
+    // finishTurn / playerEndTurn).
   }
 
   calcRent(tile, owned) {
@@ -357,12 +378,11 @@ export class Room {
         }
         break;
       case "advanceTo":
-        player.position = effect.tile;
-        if (effect.collectStart) player.balance += 200;
-        this.resolveTile(player);
-        break;
       case "move":
-        this.movePlayer(player, effect.steps);
+        // Movement cards don't move the player in the same beat the card is drawn --
+        // they wait on an explicit confirmCardMove (the player can't decline, but they
+        // do get to see the card's text before the board changes under them).
+        this.pendingAction = { type: "awaitCardMove", playerId: player.id, effect };
         break;
       case "goToHolding":
         this.sendToHolding(player);
@@ -420,6 +440,32 @@ export class Room {
     player.inHolding = false;
     player.holdingTurns = 0;
     this.pushLog(`${player.name} used a Get Out of Jail Free card to leave the Holding Pen.`);
+    return { ok: true };
+  }
+
+  // Resolves a movement card ("advance to X" / "move N spaces") that's been sitting
+  // in pendingAction since the card was drawn -- the player can't decline it, but
+  // this gives them a beat to actually read the card before the board updates,
+  // instead of the move completing invisibly in the same instant the card flips.
+  confirmCardMove(playerId) {
+    if (!this.pendingAction || this.pendingAction.type !== "awaitCardMove" || this.pendingAction.playerId !== playerId) {
+      return { error: "No card move to confirm" };
+    }
+    const { effect, rolledDoubles, wasInHolding } = this.pendingAction;
+    const player = this.playerById(playerId);
+    this.pendingAction = null;
+    if (effect.type === "advanceTo") {
+      player.position = effect.tile;
+      if (effect.collectStart) player.balance += 200;
+      this.resolveTile(player);
+    } else {
+      this.movePlayer(player, effect.steps);
+    }
+    // Only finish the deferred bonus-roll calculation if nothing else (a fresh
+    // awaitBuy, or another awaitCardMove from a chained card) is now blocking the turn.
+    if (!this.pendingAction) {
+      this.canRollAgain = !!rolledDoubles && !wasInHolding && !player.inHolding;
+    }
     return { ok: true };
   }
 
@@ -541,7 +587,10 @@ export class Room {
       winner.properties.push(auction.tileId);
       this.ownership[auction.tileId] = { ownerId: auction.highestBidderId, houses: 0 };
       this.pushLog(`${winner.name} won the auction for ${tile.name} at ${auction.highestBid} coins.`);
-      this.checkBankruptcy(winner);
+      // No immediate bankruptcy check here either, same reasoning as resolveTile --
+      // the winner's balance could in theory have dropped between bidding and this
+      // auction resolving; if that pushes them negative, it's caught at their own
+      // next turn-end, not here.
     } else {
       this.pushLog(`No bids for ${tile.name} -- it remains unowned.`);
     }
@@ -745,8 +794,8 @@ export class Room {
     if (trade.requestMoney > 0) this.transferMoney(trade.toId, trade.fromId, trade.requestMoney);
 
     this.pushLog(`${fromPlayer.name} and ${toPlayer.name} completed a trade.`);
-    this.checkBankruptcy(fromPlayer);
-    this.checkBankruptcy(toPlayer);
+    // No bankruptcy check here -- the funds check just above already guarantees
+    // neither side goes negative from this trade itself.
     return { ok: true };
   }
 
@@ -763,6 +812,12 @@ export class Room {
     this.trades = this.trades.filter((t) => t.fromId !== playerId && t.toId !== playerId);
   }
 
+  // Bankruptcy is no longer triggered automatically the instant a balance dips
+  // below zero -- a negative balance is now tolerated for as long as it takes to
+  // mortgage, sell houses, or trade your way back to solvent (none of those are
+  // turn-gated, so that's possible even before your own turn comes back around).
+  // This method still does the actual forfeiture *when called*; what changed is
+  // when it's called -- see finishTurn, the only remaining call site.
   checkBankruptcy(player) {
     if (player.balance < 0 && !player.bankrupt) {
       player.bankrupt = true;
@@ -777,16 +832,28 @@ export class Room {
     }
   }
 
+  // The single point where a turn actually ends for whichever player currently
+  // holds it -- called from playerEndTurn (the normal path) and from the
+  // stuck-in-Holding-Pen auto-end in rollDice (the other way a turn can end
+  // without the player clicking anything). Finalizes their bankruptcy first if
+  // they're still in the red, then advances to the next player, exactly mirroring
+  // how kickPlayer already skips the turn-advance once checkWinner has ended the
+  // game outright.
+  finishTurn(player) {
+    if (player.balance < 0) this.checkBankruptcy(player);
+    if (!this.winnerId) this.endTurn();
+  }
+
   // The player-facing "End turn" action -- unlike the internal endTurn() below
-  // (also called by kickPlayer and the stuck-in-holding path, neither of which
-  // should require a prior roll), this enforces that rolling is mandatory: you
-  // can't just pass through your turn without ever rolling the dice.
+  // (also called by kickPlayer, neither of which should require a prior roll),
+  // this enforces that rolling is mandatory: you can't just pass through your
+  // turn without ever rolling the dice.
   playerEndTurn(playerId) {
     const player = this.currentPlayer();
     if (!player || player.id !== playerId) return { error: "Not your turn" };
     if (this.pendingAction) return { error: "Resolve the current action first" };
     if (!this.lastRoll) return { error: "Roll the dice before ending your turn" };
-    this.endTurn();
+    this.finishTurn(player);
     return { ok: true };
   }
 

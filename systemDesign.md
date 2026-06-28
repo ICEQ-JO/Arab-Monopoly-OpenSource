@@ -67,9 +67,11 @@ One `Room` instance per active game (keyed by room code).
 - `surpriseDeck` / `treasureDeck` — shuffled, drawn from front
 - `log[]` — rolling list of the last 50 human-readable event strings (most
   recent first)
-- `pendingAction` — `null` or `{ type: 'awaitBuy', tileId, playerId }`. This
-  is the turn-blocking mechanism: while set, no other action (roll, end
-  turn) is accepted from that player until they buy or decline.
+- `pendingAction` — `null` or one of `{ type: 'awaitBuy', tileId, playerId }`,
+  `{ type: 'awaitCardMove', playerId, effect, rolledDoubles, wasInHolding }`,
+  or `{ type: 'auction', tileId, auctionId, playerId }`. This is the
+  turn-blocking mechanism: while set, no other action (roll, end turn) is
+  accepted from that player until it resolves.
 - `lastRoll`, `lastCard` — transient, for client display, cleared at the
   start of the next turn
 - `turnTimer` / `turnDeadline` — the live `setTimeout` handle and its target
@@ -88,7 +90,9 @@ One `Room` instance per active game (keyed by room code).
 ```
 rollDice(playerId)
   -> rejects if !canRollAgain (already used this turn's roll -- see below)
+  -> logs "<name> rolled a/an <total>." regardless of what happens next
   -> handles Holding Pen logic (doubles to escape / 3-turn cap / pay to leave)
+       -> if still stuck (no escape, not yet at the 3-turn cap): finishTurn(player), return early
   -> tracks consecutiveDoubles; 3 in a row -> sendToHolding(player), skip the move entirely
   -> movePlayer(player, steps)
        -> wraps position around the 32 tiles, pays 200 on passing Start
@@ -98,13 +102,18 @@ rollDice(playerId)
                  tax                      -> deduct fixed amount
                  surprise/treasure        -> drawCard -> applyCardEffect
                  go_to_holding            -> sendToHolding
-            -> checkBankruptcy(player)
+  -> if a card just opened pendingAction: 'awaitCardMove', stash rolledDoubles/wasInHolding
+     on it and return early -- the bonus-roll decision waits for confirmCardMove (see below)
   -> sets canRollAgain = rolledDoubles && !wasInHolding && !player.inHolding
      (a bonus roll, but not for doubles that just escaped the Holding Pen,
      not on the 3rd-in-a-row case above which already returned early, and
      not if *this same move* just sent them to the Holding Pen via the
      "go to Holding" tile or a card effect)
 ```
+
+Note `resolveTile` itself no longer checks bankruptcy — see "Bankruptcy is
+deferred to turn-end" below; a negative balance from rent/tax/a card is
+tolerated until whoever's turn it is finishes their turn.
 
 **Roll gating (`canRollAgain`) and the three-doubles rule:** the original
 implementation let a player call `rollDice` repeatedly within their own
@@ -134,6 +143,22 @@ one. Fixed by tracking two pieces of room-level state, both reset to
   they don't move by that third roll's distance or resolve whatever tile
   it would have landed on, matching the real rule that three-in-a-row
   ends your move immediately, not just your turn.
+- **Movement cards pause for confirmation instead of resolving instantly.**
+  `applyCardEffect`'s `advanceTo`/`move` cases (e.g. "Advance to Start
+  Plaza", "Move back 3 spaces") no longer move the player in the same beat
+  the card is drawn — they set `pendingAction = { type: 'awaitCardMove',
+  playerId, effect }` and stop there. `confirmCardMove(playerId)` is the
+  only way to resolve it: the player can't decline (it's not a real
+  choice), but they get an explicit beat to read the card's text before the
+  board updates, instead of the move completing invisibly inside the same
+  `rollDice` call. Once confirmed, it actually runs `movePlayer`/
+  `resolveTile` for that effect and — if nothing else (a fresh `awaitBuy`,
+  or another `awaitCardMove` from a chained card draw) is now blocking the
+  turn — finishes the bonus-roll calculation that `rollDice` deferred onto
+  the pending action (`rolledDoubles`/`wasInHolding`, stashed there right
+  after the original `movePlayer` call returned). `goToHolding` is *not*
+  deferred this way — only effects that move the player to a tile other
+  than the Holding Pen wait on confirmation.
 - `calcRent` handles the three rent shapes: flat property rent (with
   monopoly doubling when unimproved and the owner holds the whole color
   group), transit rent (scales with how many transit tiles the owner holds),
@@ -147,17 +172,24 @@ one. Fixed by tracking two pieces of room-level state, both reset to
   `holdingFreeCard`, either of which sets `inHolding = false` so the
   player's *next* `rollDice` this same turn behaves as ordinary free-play
   movement rather than another holding-escape attempt. Both require it
-  being the player's own turn and that they're actually `inHolding`.
+  being the player's own turn and that they're actually `inHolding`. The
+  client only *offers* these two buttons (and the "roll for doubles or
+  pay/use a card" choice generally) starting on the player's **next** turn,
+  not the turn they were sent to the Holding Pen on — gated client-side on
+  `!state.lastRoll` (i.e. they haven't rolled yet this turn), since
+  `lastRoll` is non-null the instant they're freshly confined mid-roll but
+  resets to `null` at the start of their following turn.
 - `playerEndTurn(playerId)` is the player-facing "End turn" action,
   distinct from the internal `endTurn()` below (also called by
-  `kickPlayer` and the stuck-in-holding path inside `rollDice`, neither of
-  which should require a prior roll). It enforces that rolling is
-  mandatory each turn: rejects with `"Roll the dice before ending your
-  turn"` if `this.lastRoll` is still `null` for the current turn. This
-  also resolves a structural inconsistency flagged in an earlier pass —
-  every other player action's primary guard lived inside `Room.js`, but
-  `endTurn`'s guards used to live in `index.js` instead; they now live
-  here, alongside the new roll requirement.
+  `kickPlayer`, which shouldn't require a prior roll). It enforces that
+  rolling is mandatory each turn: rejects with `"Roll the dice before
+  ending your turn"` if `this.lastRoll` is still `null` for the current
+  turn. This also resolves a structural inconsistency flagged in an
+  earlier pass — every other player action's primary guard lived inside
+  `Room.js`, but `endTurn`'s guards used to live in `index.js` instead;
+  they now live here, alongside the new roll requirement. Once past that
+  guard, it hands off to `finishTurn(player)` rather than calling
+  `endTurn()` directly — see "Bankruptcy is deferred to turn-end" below.
 - `buyHouse` enforces full-color-group ownership, a 5-level cap (level 5 =
   hotel), and that the property isn't mortgaged before allowing a purchase.
 - `sellHouse` is the reverse: reduces `houses` by one and refunds half the
@@ -172,9 +204,26 @@ one. Fixed by tracking two pieces of room-level state, both reset to
   While mortgaged: `resolveTile` waives rent entirely (logged, not
   charged), `buyHouse` refuses to build, and `isTradeable` excludes the
   tile from trading.
-- `checkBankruptcy` triggers when balance goes negative: releases all of
-  that player's properties back to the bank, marks them bankrupt, and calls
-  `checkWinner()`.
+- **Bankruptcy is deferred to turn-end, not triggered the instant a balance
+  goes negative.** `checkBankruptcy(player)` still does the actual
+  forfeiture *when called* — releases all of that player's properties back
+  to the bank, marks them bankrupt, clears their trades/auction bids, and
+  calls `checkWinner()` — but it's no longer called automatically after
+  every rent/tax/card payment, auction win, or trade. Those all freely
+  allow a negative `balance` to sit there, since mortgaging, selling
+  houses, and trading are all *not* turn-gated (see their own bullets
+  above/below) — a player in the red has a real window to fix it before
+  anyone actually enforces the rule. `finishTurn(player)` is the one place
+  that enforcement happens: `if (player.balance < 0) this.checkBankruptcy
+  (player); if (!this.winnerId) this.endTurn();` — called from both
+  `playerEndTurn` (the normal "End turn" button) and the stuck-in-Holding
+  -Pen auto-end path inside `rollDice` (the other way a turn can end
+  without an explicit `endTurn` click). This means a player whose balance
+  went negative because of *someone else's* turn (e.g. a `payEachPlayer`/
+  `collectFromEachPlayer` card effect landing on them) isn't bankrupted
+  until *their own* next turn ends — they get that entire gap, even though
+  it wasn't their turn that caused the debt. Deliberate, not an oversight:
+  see the invariant below.
 - `kickPlayer(playerId, reasonLabel)` is the single exit path for an
   expired disconnect grace window, manual leaves, *and* turn-timeouts (see
   below): clears any pending `graceTimer` for that player, releases
@@ -235,6 +284,13 @@ at any time — trading is **not gated on turn order or `pendingAction`**;
 it's a side negotiation, not a turn action. A trade offer is one-directional
 in shape but two-sided in content: the proposer's `offerProperties` +
 `offerMoney` for the target's `requestProperties` + `requestMoney`.
+`index.js`'s `proposeTrade`/`counterTrade` socket handlers acknowledge the
+client's callback with the `Room` method's result (`{ ok, tradeId }` or
+`{ error }`) — an earlier version of both handlers silently dropped the
+ack entirely, so a failed proposal (e.g. offering a property that had
+already changed hands since the form was last filled out) produced no
+visible error and the form's fields never cleared, making trading look
+like it had stopped working after the first attempt with any given player.
 - `proposeTrade(fromId, {...})` validates both players are active, the
   proposer actually owns every `offerProperties` tile and the target owns
   every `requestProperties` tile, both via `isTradeable()` (must be a
@@ -500,16 +556,23 @@ the next remaining active player automatically becomes host.
   purely for display — the server enforces the actual cutoff regardless of
   what the client shows or does), dice/card display, roll/buy/decline
   /build/end-turn buttons (each gated on `isMyTurn` and `pendingAction`), a
-  build panel that pairs each developable property with both a "Build"
-  and (once it has houses) a "Sell" button, a separate mortgage panel
-  listing mortgageable properties (with their payout) and already-mortgaged
-  ones (with their payoff cost) — **not turn-gated**, since managing your
-  own finances isn't a turn action — a "Leave" button (emits `leaveRoom`,
-  clears the saved session, then resets local state), player list with
-  balances/badges — a permanent
-  "left/kicked" badge for anyone fully removed, and a separate transient
-  "reconnecting..." badge for `connected: false && !left` (i.e. someone
-  else's disconnect grace window currently ticking) — and the log feed.
+  "Continue" button for `pendingAction: awaitCardMove` showing the card's
+  text (the only way to resolve it — no decline option), a build panel that
+  pairs each developable property with both a "Build" and (once it has
+  houses) a "Sell" button, a separate mortgage panel listing mortgageable
+  properties (with their payout) and already-mortgaged ones (with their
+  payoff cost) — **not turn-gated**, since managing your own finances isn't
+  a turn action — a "Leave" button (emits `leaveRoom`, clears the saved
+  session, then resets local state), player list with balances/badges — a
+  permanent "left/kicked" badge for anyone fully removed, a separate
+  transient "reconnecting..." badge for `connected: false && !left` (i.e.
+  someone else's disconnect grace window currently ticking), and an "in
+  debt" badge for anyone with `balance < 0` who isn't already bankrupt or
+  left (purely informational; the actual enforcement is server-side and
+  deferred to that player's own turn-end, see §2.3 "Bankruptcy is deferred
+  to turn-end"). The Pay/Use-card Holding Pen options and the in-debt hint
+  above the End Turn button are both gated on `!state.lastRoll` /
+  `me.balance < 0` respectively — and the log feed.
   Every interactive control just emits a socket event; it never mutates
   local state directly.
 - `components/Trade.jsx` — rendered in the `Hud` whenever the game is
@@ -565,11 +628,12 @@ the next remaining active player automatically becomes host.
 | `unmortgageProperty` | `{ tileId }` | requires enough coins for value + 10% interest; not turn-gated |
 | `payToLeaveHolding` | — | current-player-only; requires `player.inHolding`; costs `HOLDING_RELEASE_RENT` |
 | `useHoldingFreeCard` | — | current-player-only; requires `player.inHolding && holdingFreeCard` |
-| `endTurn` | — | current-player-only; rejected if `pendingAction` set **or no roll yet this turn** |
+| `confirmCardMove` | — | resolves `pendingAction: awaitCardMove`; current-player-only, no decline option |
+| `endTurn` | — | current-player-only; rejected if `pendingAction` set **or no roll yet this turn**; finalizes bankruptcy via `finishTurn` if balance is still negative |
 | `leaveRoom` | — | graceful manual exit; forfeits the seat exactly like a disconnect would |
-| `proposeTrade` | `{ toId, offerProperties, offerMoney, requestProperties, requestMoney }` | not turn-gated; either side can be any active player |
+| `proposeTrade` | `{ toId, offerProperties, offerMoney, requestProperties, requestMoney }` | not turn-gated; either side can be any active player; ack: `{ ok, tradeId }` or `{ error }` |
 | `respondTrade` | `{ tradeId, accept }` | only the trade's `toId` may respond |
-| `counterTrade` | `{ tradeId, offerProperties, offerMoney, requestProperties, requestMoney }` | only the trade's `toId` may counter; replaces the original |
+| `counterTrade` | `{ tradeId, offerProperties, offerMoney, requestProperties, requestMoney }` | only the trade's `toId` may counter; replaces the original; ack: `{ ok, tradeId }` or `{ error }` |
 | `cancelTrade` | `{ tradeId }` | only the trade's `fromId` may cancel |
 
 **Server → Client**
@@ -603,8 +667,16 @@ grows much larger or tick rate increases.
   model; client never needs to reconcile or predict.
 - **`pendingAction` blocks the turn** — the one piece of explicit turn-state
   machine; everything else is inferred from `turnIndex` + player fields.
-- **Bankruptcy is immediate and final** — no partial liquidation/asset-sale
-  flow; first negative balance ends a player's game.
+- **Bankruptcy is deferred to turn-end, but still final once it happens.**
+  A negative balance is tolerated mid-turn (rent, tax, card penalties, and
+  auction wins never check it) specifically so a player can mortgage, sell
+  houses, or trade their way back to solvent before it's enforced — none of
+  those actions are turn-gated, so this is possible even on someone else's
+  turn. The actual check happens once, in `finishTurn`, at the moment
+  whichever player currently holds the negative balance has *their own*
+  turn end (via `playerEndTurn` or the stuck-in-Holding-Pen auto-end). If
+  they're still negative at that instant, bankruptcy is immediate and final
+  from there — there's no second chance once that specific check fires.
 - **Decks reshuffle on exhaustion**, not after every draw (cards drawn don't
   recirculate until the deck runs out).
 - **No persistence layer** — rooms are pure in-memory JS objects.
@@ -809,3 +881,22 @@ grows much larger or tick rate increases.
   unified "what are my options right now" affordance distinguishing
   "must act" states (it's your turn, you're confined) from optional ones.
   Minor UX gap, not a rules gap.
+- A player whose balance goes negative on *someone else's* turn (e.g. a
+  `payEachPlayer`/`collectFromEachPlayer` card effect) isn't bankrupted
+  until their own next turn ends — but if they're kicked for disconnect,
+  AFK timeout, or a manual leave before that turn ever comes around,
+  `kickPlayer` doesn't check balance at all, so they exit as `left` rather
+  than `bankrupt` regardless of how deep in the red they were. Both states
+  are equally terminal in this game, so it's cosmetic today, but worth
+  naming since the two paths now disagree on when debt is "settled."
+- No cap on how negative a balance can go before it's actually checked —
+  a player can rack up several rent/tax/card hits across a single turn
+  (especially with bonus rolls from doubles) with no warning until the
+  "you're in debt" hint appears right before they'd otherwise end their
+  turn. Not a correctness issue, just a UX gap: no running "you're about to
+  owe X" indicator mid-turn.
+- A chain of movement cards (a "move" effect landing on another
+  surprise/treasure tile that itself draws a movement card) requires one
+  `confirmCardMove` click per card in the chain, with no batch-confirm —
+  each click is its own server round-trip. Fine at this game's pace, just
+  worth naming as a minor friction point if chains turn out to be common.

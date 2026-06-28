@@ -9,6 +9,127 @@ in the same pass.
 
 ---
 
+## Pass 13 — 2026-06-29 — Fix: four more playtest bugs, plus deferred bankruptcy
+
+**Goal:** continue the live playtest from Pass 12. The user found four more
+concrete bugs in the newest code (card moves, jail timing, trading), and
+then raised a design problem with bankruptcy itself: a player who owes more
+than they have loses instantly, with no chance to mortgage/sell/trade their
+way out first — unlike real property-trading games, where you only go
+bankrupt if you *still* can't cover it after liquidating what you can.
+
+**What was found and fixed (bugs):**
+- **No log entry for the dice roll itself.** `rollDice` set `lastRoll` and
+  reacted to it, but never actually logged the roll happening. Added
+  `pushLog` with a grammatically-correct article (`"Alice rolled a 12."` /
+  `"Alice rolled an 8."` — "eight" and "eleven" are the only totals 2–12
+  that start with a vowel sound) right after the dice are rolled, before any
+  branching on the result.
+- **Movement cards ("Advance to X" / "Move N spaces") resolved instantly,**
+  with no chance to actually read the card before the board changed under
+  the player. `applyCardEffect`'s `advanceTo`/`move` cases now set
+  `pendingAction: { type: "awaitCardMove", ... }` instead of moving the
+  player immediately; a new `confirmCardMove(playerId)` does the actual
+  move once the player clicks the new "Continue" button (no decline option
+  — it's not a real choice, just a deliberate beat). `rollDice` had to
+  defer its own bonus-roll calculation (`canRollAgain`) onto the pending
+  action in this case, since it depends on the player's state *after* the
+  move, which hasn't happened yet at the point the card was drawn.
+- **Jail pay/use-card options appeared the instant a player arrived in the
+  Holding Pen,** even mid-turn, before they'd had any real turn to decide
+  with — they should only be offered starting on the player's *next* turn.
+  Fixed client-side: gated the option on `!state.lastRoll` in addition to
+  `inHolding` — `lastRoll` is non-null the instant they're freshly confined
+  (since they just rolled to get there) but resets to `null` at the start
+  of their following turn, which turned out to be exactly the right signal
+  with no new state needed.
+- **Trading silently stopped working after the first attempt with any given
+  player.** Root cause: `index.js`'s `proposeTrade`/`counterTrade` socket
+  handlers never invoked the client's acknowledgement callback. The trade
+  form's success handler (which clears the selected properties/coins) never
+  ran, so a second attempt reused stale property IDs that the server then
+  rejected — and since the ack never fired, the rejection's error message
+  never reached the UI either. It looked completely dead, with no visible
+  error. Fixed both handlers to call back with the `Room` method's actual
+  result.
+
+**What changed (bankruptcy redesign):**
+- `checkBankruptcy(player)` no longer fires automatically after every
+  rent/tax/card payment, auction win, or trade completion — those call
+  sites were all removed (`resolveTile`, `resolveAuction`, `respondTrade`).
+  A negative `balance` is now tolerated indefinitely mid-turn.
+- Added `finishTurn(player)`: `if (player.balance < 0)
+  this.checkBankruptcy(player); if (!this.winnerId) this.endTurn();` — the
+  one place bankruptcy is actually enforced, called from `playerEndTurn`
+  (the "End turn" button) and from the stuck-in-Holding-Pen auto-end path
+  in `rollDice` (the other way a turn can end without an explicit click).
+- Since mortgaging, selling houses, and trading were already not
+  turn-gated (Pass 5/6), a player in the red already had every tool needed
+  to recover *before* their own turn ends — no new recovery mechanism had
+  to be built, just the removal of the premature check.
+- This means a player whose balance went negative because of *someone
+  else's* turn (a `payEachPlayer`/`collectFromEachPlayer` card) isn't
+  bankrupted until *their own* next turn ends, even though it wasn't their
+  turn that caused it — confirmed with the user this is the desired
+  behavior, not an oversight to special-case away.
+- Client: added an "in debt" badge (`balance < 0`, not yet bankrupt/left)
+  to the player list, and a warning hint above the "End turn" button when
+  it's the player's own turn and their own balance is negative, naming the
+  consequence explicitly so it's never a surprise.
+- Verified server-side: going negative mid-turn doesn't touch the
+  `bankrupt` flag or release properties; mortgaging *enough* before ending
+  the turn avoids bankruptcy entirely; mortgaging *not enough* still
+  bankrupts at turn-end; the stuck-in-Holding-Pen auto-end path enforces
+  the same rule as the explicit "End turn" button, not just the latter.
+
+**Why these calls:**
+- Deferred (not removed) bankruptcy checking: the *rule* that a negative
+  balance is eventually fatal didn't change, only *when* it's checked —
+  this is a timing fix, not a removal of consequences, so the simplest
+  correct change was relocating the one call to `checkBankruptcy` rather
+  than rewriting how it works.
+- `finishTurn` as a new shared method rather than inlining the check at
+  each of its two call sites: both `playerEndTurn` and the stuck-in-holding
+  path are genuinely "a turn is ending right now" moments, and duplicating
+  the same three lines in both places risked exactly the kind of drift
+  Pass 11's bug hunt was about.
+- No special-casing for "this player's debt came from someone else's
+  turn": building a notion of *who* caused a given balance change, just to
+  treat it differently at enforcement time, is real complexity for a
+  distinction the user explicitly said they liked once it was pointed out
+  — simplest correct rule is "whoever's turn it is, when it ends, is on
+  the hook for their own balance," full stop.
+- Card-move deferral via `pendingAction` rather than a separate timer or
+  client-side delay: it's the exact same "block the turn until this one
+  thing resolves" mechanism every other turn-blocking action already uses
+  (`awaitBuy`, `auction`) — no reason to invent a second pattern for a
+  third instance of the same shape of problem.
+
+**Known gaps left for later:** a player kicked (disconnect/AFK/manual
+leave) while carrying an unsettled negative balance exits as `left` rather
+than `bankrupt`, since `kickPlayer` doesn't check balance — cosmetic today
+(both are equally terminal) but the two exit paths now disagree on whether
+debt was ever "resolved"; no running mid-turn indicator of accumulating
+risk before the in-debt hint appears; a chain of movement cards (one
+landing on another card-drawing tile) needs one `confirmCardMove` click per
+card in the chain, no batch-confirm. All three logged in
+`systemDesign.md` §6, not fixed this pass.
+
+**State at end of pass:** all four bug fixes and the bankruptcy redesign
+verified via direct `Room` unit tests (temporary files, deleted before
+committing) — including reproducing the exact "move back 3 spaces" card
+flow end-to-end and confirming it actually was a stale-client-bundle issue,
+not a server bug, before touching any code for that one. Client rebuilt and
+server restarted twice during this pass to ship each fix; the user
+confirmed each one in their live playtest before moving to the next.
+`systemDesign.md` updated in place — new `awaitCardMove` pendingAction
+type and `confirmCardMove`/`finishTurn` method descriptions, updated
+Holding Pen/bankruptcy/trading sections, wire protocol entries, a fully
+rewritten bankruptcy invariant (replacing "immediate and final"), and new
+gaps entries.
+
+---
+
 ## Pass 12 — 2026-06-29 — Fix: three bugs found in a real playtest
 
 **Goal:** the user ran an actual test session and reported three concrete
