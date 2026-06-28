@@ -1,0 +1,112 @@
+import { socket } from "../socket";
+
+export default function Hud({ state, myId }) {
+  const me = state.players.find((p) => p.id === myId);
+  const current = state.players[state.turnIndex];
+  const isMyTurn = current?.id === myId;
+  const pending = state.pendingAction;
+  const board = state.board;
+  const pendingTile = pending ? board[pending.tileId] : null;
+
+  const myOwnedBuildable = board.filter((t) => {
+    const owned = state.ownership[t.id];
+    return t.type === "property" && owned?.ownerId === myId;
+  });
+
+  return (
+    <div className="hud">
+      <div className="hud-section">
+        <h3>Room {state.code}</h3>
+        {!state.started && (
+          <div>
+            <p>Waiting for players ({state.players.length}/6)...</p>
+            {state.hostId === myId && state.players.length >= 2 && (
+              <button className="primary" onClick={() => socket.emit("startGame")}>
+                Start game
+              </button>
+            )}
+            {state.hostId === myId && state.players.length < 2 && <p className="hint">Need at least 2 players.</p>}
+          </div>
+        )}
+      </div>
+
+      {state.started && !state.winnerId && (
+        <div className="hud-section">
+          <h3>{isMyTurn ? "Your turn" : `${current?.name}'s turn`}</h3>
+          {state.lastRoll && (
+            <p className="dice-display">
+              🎲 {state.lastRoll[0]} + {state.lastRoll[1]} = {state.lastRoll[0] + state.lastRoll[1]}
+            </p>
+          )}
+          {state.lastCard && <p className="card-display">{state.lastCard.deck === "surprise" ? "❓" : "🎁"} {state.lastCard.text}</p>}
+
+          {isMyTurn && !pending && (
+            <div className="action-row">
+              <button className="primary" onClick={() => socket.emit("rollDice")}>
+                Roll dice
+              </button>
+              <button onClick={() => socket.emit("endTurn")}>End turn</button>
+            </div>
+          )}
+
+          {isMyTurn && pending?.type === "awaitBuy" && (
+            <div className="buy-prompt">
+              <p>
+                Buy <strong>{pendingTile.name}</strong> for ${pendingTile.price}?
+              </p>
+              <div className="action-row">
+                <button className="primary" onClick={() => socket.emit("buyProperty")}>
+                  Buy
+                </button>
+                <button onClick={() => socket.emit("declineBuy")}>Decline</button>
+              </div>
+            </div>
+          )}
+
+          {isMyTurn && !pending && myOwnedBuildable.length > 0 && (
+            <details className="build-panel">
+              <summary>Build houses</summary>
+              {myOwnedBuildable.map((t) => (
+                <button key={t.id} className="build-btn" onClick={() => socket.emit("buyHouse", { tileId: t.id })}>
+                  {t.name} (+${t.housePrice})
+                </button>
+              ))}
+            </details>
+          )}
+        </div>
+      )}
+
+      {state.winnerId && (
+        <div className="hud-section winner-banner">
+          <h2>🏆 {state.players.find((p) => p.id === state.winnerId)?.name} wins!</h2>
+        </div>
+      )}
+
+      <div className="hud-section">
+        <h3>Players</h3>
+        <ul className="player-list">
+          {state.players.map((p) => (
+            <li key={p.id} className={p.bankrupt ? "bankrupt" : ""}>
+              <span className="swatch" style={{ background: p.color }} />
+              <span className="p-name">
+                {p.name} {p.id === myId && "(you)"}
+              </span>
+              <span className="p-balance">${p.balance}</span>
+              {p.inHolding && <span className="badge">in holding</span>}
+              {p.bankrupt && <span className="badge">bankrupt</span>}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="hud-section log">
+        <h3>Log</h3>
+        <ul>
+          {state.log.map((entry, i) => (
+            <li key={i}>{entry}</li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
