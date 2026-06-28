@@ -102,7 +102,9 @@ rollDice(playerId)
   monopoly doubling when unimproved and the owner holds the whole color
   group), transit rent (scales with how many transit tiles the owner holds),
   utility rent (multiplier × last dice roll, scales with utilities owned).
-- `buyProperty` / `declineBuy` resolve a pending `awaitBuy`.
+- `buyProperty` resolves a pending `awaitBuy` by purchase. `declineBuy`
+  resolves it by instead calling `startAuction(tileId)` — see "Auctions"
+  below.
 - `buyHouse` enforces full-color-group ownership, a 5-level cap (level 5 =
   hotel), and that the property isn't mortgaged before allowing a purchase.
 - `sellHouse` is the reverse: reduces `houses` by one and refunds half the
@@ -208,6 +210,57 @@ in shape but two-sided in content: the proposer's `offerProperties` +
 - `clearTradesInvolving(playerId)` is called from both `kickPlayer` and
   `checkBankruptcy` so a trade never dangles after one side of it leaves
   the game mid-negotiation.
+
+**Auctions:** `declineBuy` no longer just walks away from an unowned
+property — it calls `startAuction(tileId)`, opening bidding to every
+active player (including whoever just declined).
+- `startAuction` pushes a new entry onto `auctions[]` (`{ id, tileId,
+  highestBid, highestBidderId, passedIds }`) and sets `pendingAction =
+  { type: "auction", tileId, auctionId, playerId: currentPlayer.id }`.
+  Because `rollDice`/`endTurn` already refuse to act while *any*
+  `pendingAction` is set, this one line is enough to block the declining
+  player from rolling again or ending their turn until the auction they
+  caused is resolved — no new gating logic needed, just reusing the
+  existing mechanism with a new `pendingAction.type`.
+- **Several auctions can be open at once.** Each gets its own `id` rather
+  than the room holding one auction slot — e.g. a turn-timeout kick mid
+  -auction hands the turn to a new player who could immediately land on a
+  *different* unowned tile and decline that one too, before the first
+  auction has closed. Treating auctions as an array sidesteps that
+  conflict entirely instead of needing to queue or reject overlapping ones.
+- `placeBid(playerId, auctionId, amount)` — any active player not already
+  passed on that specific auction can bid, provided the amount is a whole
+  number strictly higher than the current `highestBid` and they can afford
+  it. After recording the bid, calls `maybeResolveAuction`.
+- `passAuction(playerId, auctionId)` — adds the player to `passedIds`
+  (idempotent) and also calls `maybeResolveAuction`.
+- `maybeResolveAuction(auctionId)` decides whether bidding is actually
+  over: it resolves if **nobody** is left who hasn't passed (no winner —
+  the property stays unowned), or if **exactly one** active, non-passed
+  player remains *and that player is already the highest bidder*. The
+  second condition matters: if the last remaining player hasn't bid yet,
+  the auction does **not** auto-resolve in their favor — they still get
+  the chance to bid (becoming the winner) or pass (ending it with no
+  winner) before anything closes. Auto-awarding it to them without that
+  choice would be a real bug, not just an edge case.
+- `resolveAuction(auctionId)` removes the auction from `auctions[]`, and
+  if there's a `highestBidderId`, charges them, gives them the tile, and
+  creates the `ownership` entry exactly like a normal purchase (then runs
+  `checkBankruptcy` defensively). If `pendingAction` still points at this
+  same `auctionId`, clears it — freeing up the original decliner's turn.
+  (If that pending action was already cleared by something else in the
+  meantime — e.g. they were turn-timer-kicked while the auction was still
+  running — this is a no-op; the auction still resolves correctly, it just
+  doesn't need to unblock anyone.)
+- `clearAuctionBidsFrom(playerId)` — called from both `kickPlayer` and
+  `checkBankruptcy`, same pattern as `clearTradesInvolving`. A
+  kicked/bankrupt player can't be left holding the winning bid (or even a
+  passive seat) on a still-open auction: if they were the high bidder,
+  their bid is **voided** (reset to `highestBid: 0`, `highestBidderId:
+  null` — *not* rolled back to the next-highest bid, since individual bid
+  history isn't tracked, only the current high bid), and either way
+  they're added to `passedIds` so they can't be counted as a remaining
+  bidder. Then re-checks whether the auction can now resolve.
 
 ### 2.4 `index.js` — Socket.io wiring
 Thin glue only — no game logic. Each socket event handler calls the matching
@@ -328,6 +381,13 @@ the next remaining active player automatically becomes host.
   re-checks all of this regardless), and coin amounts on both sides. Like
   every other control, it only emits events (`proposeTrade`/`respondTrade`
   /`cancelTrade`) and renders whatever `state.trades` comes back.
+- `components/Auction.jsx` — rendered above `Trade` in the `Hud`, same
+  gating (started, no winner). Lists every entry in `state.auctions`,
+  **not turn-gated** — any active player can bid or pass on any open
+  auction regardless of whose turn it is, since that's the whole point of
+  an auction. Each card shows the tile, current high bid/bidder (or "No
+  bids yet"), and either a bid input + Bid/Pass buttons, or "You passed on
+  this auction" if `myId` is already in that auction's `passedIds`.
 
 ## 4. Wire protocol (Socket.io events)
 
@@ -340,7 +400,9 @@ the next remaining active player automatically becomes host.
 | `startGame` | — | host-only, requires ≥2 players |
 | `rollDice` | — | current-player-only; rejected if `pendingAction` set |
 | `buyProperty` | — | resolves `pendingAction: awaitBuy` |
-| `declineBuy` | — | resolves `pendingAction: awaitBuy` |
+| `declineBuy` | — | resolves `pendingAction: awaitBuy`; opens an auction on that tile |
+| `placeBid` | `{ auctionId, amount }` | not turn-gated; any active player not already passed |
+| `passAuction` | `{ auctionId }` | not turn-gated; idempotent |
 | `buyHouse` | `{ tileId }` | requires full color-group ownership, property unmortgaged |
 | `sellHouse` | `{ tileId }` | no full-group requirement to sell down |
 | `mortgageProperty` | `{ tileId }` | requires undeveloped, not already mortgaged; not turn-gated |
@@ -368,6 +430,7 @@ the next remaining active player automatically becomes host.
   pendingAction: {...} | null,
   turnDeadline: <epoch ms> | null,  // for the client's countdown display only
   trades: [...],         // see §2.3 "Trading"
+  auctions: [...],       // see §2.3 "Auctions"
   board: BOARD,          // static, sent every time (cheap, simplifies client)
 }
 ```
@@ -434,12 +497,31 @@ grows much larger or tick rate increases.
   your own properties for cash is a financial decision, not a turn action
   — there's no reason to make a player wait for their turn to mortgage
   something to cover a rent payment that's due right now.
+- **Declining a purchase always triggers an auction — there's no "just
+  walk away" option.** Once a property is up for auction, the only ways
+  it resolves are someone winning it or every active player passing (bank
+  keeps it unowned). This mirrors the real reason auctions exist: letting
+  a player decline for free would mean never paying full price for
+  anything once the group realizes lowballing is risk-free.
+- **An auction blocks only the player whose decline caused it**, via the
+  same `pendingAction` mechanism every other turn-blocking action uses —
+  bidding itself is open to everyone else regardless of turn order, same
+  as trading.
+- **Multiple auctions can be open simultaneously** (`auctions[]`, not a
+  single slot) precisely because a turn-timeout kick mid-auction can hand
+  control to a new current player who triggers a second one before the
+  first resolves. Modeling this as an array sidesteps having to define
+  queueing/rejection behavior for a case that's rare but real.
+- **A bid that's about to win can still be voided.** If the current high
+  bidder gets kicked or goes bankrupt before the auction closes, their bid
+  doesn't count anymore — it's reset to $0/no-bidder rather than falling
+  back to whatever the second-highest bid was (full bid history isn't
+  tracked), and they're treated as having passed.
 - **Mortgaging waives rent entirely rather than reducing it.** Simpler
   than a partial-rent rule, and matches the usual convention that a
   mortgaged property generates no income for its owner until it's paid off.
 
 ## 6. Known gaps (not yet built)
-- Auctions when a player declines to buy
 - Persistent rooms (everything is wiped on server restart)
 - The grace window is a single fixed 20s for everyone, with no visibility
   into it for other players beyond a generic "reconnecting..." badge —
@@ -460,3 +542,14 @@ grows much larger or tick rate increases.
 - No limit on how many trades a player can have open at once, and no
   per-player rate limiting on `proposeTrade` — fine for a casual game
   between friends, not something that's been hardened against spam.
+- No minimum bid increment on auctions — any integer strictly above the
+  current high bid is accepted, even $1 more. Real auctions often enforce
+  a minimum raise; not implemented here.
+- No time limit on an individual auction itself — it can sit open
+  indefinitely as long as at least two active players haven't passed,
+  independent of the 4-minute turn timer (which only ever applies to the
+  original decliner, not to other players' bidding).
+- Voiding a kicked/bankrupt high bidder's bid drops straight to $0/no
+  -bidder instead of falling back to the next-highest actual bid, since
+  bid history isn't tracked. In practice this just means the auction
+  re-opens from scratch rather than resuming at the second-best offer.

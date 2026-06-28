@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { socket } from "../socket";
 import Trade from "./Trade";
+import Auction from "./Auction";
 
 function TurnCountdown({ deadline }) {
   const [now, setNow] = useState(Date.now());
@@ -149,6 +150,7 @@ export default function Hud({ state, myId, onLeave }) {
         </div>
       )}
 
+      {state.started && !state.winnerId && <Auction state={state} myId={myId} />}
       {state.started && !state.winnerId && <Trade state={state} myId={myId} />}
 
       {state.winnerId && (

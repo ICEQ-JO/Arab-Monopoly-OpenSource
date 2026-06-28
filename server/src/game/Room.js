@@ -29,6 +29,7 @@ export class Room {
     this.turnDeadline = null;
     this.notify = null; // set by the server to broadcast state after an autonomous timeout kick
     this.trades = []; // { id, fromId, toId, offerProperties, offerMoney, requestProperties, requestMoney }
+    this.auctions = []; // { id, tileId, highestBid, highestBidderId, passedIds }
   }
 
   addPlayer(id, name, token) {
@@ -109,6 +110,7 @@ export class Room {
     player.left = true;
     if (this.pendingAction?.playerId === playerId) this.pendingAction = null;
     this.clearTradesInvolving(playerId);
+    this.clearAuctionBidsFrom(playerId);
     this.pushLog(`${player.name} ${reasonLabel}.`);
     this.checkWinner();
     if (!this.winnerId && wasCurrent) {
@@ -380,9 +382,98 @@ export class Room {
     if (!this.pendingAction || this.pendingAction.type !== "awaitBuy" || this.pendingAction.playerId !== playerId) {
       return { error: "No property to decline" };
     }
-    this.pushLog(`${this.playerById(playerId).name} declined to buy ${BOARD[this.pendingAction.tileId].name}.`);
+    const tileId = this.pendingAction.tileId;
+    this.pushLog(`${this.playerById(playerId).name} declined to buy ${BOARD[tileId].name}.`);
     this.pendingAction = null;
+    this.startAuction(tileId);
     return { ok: true };
+  }
+
+  // Opens bidding to every active player (including whoever just declined). Several
+  // auctions can be open at once -- e.g. a turn-timeout kick can hand the turn to a new
+  // player who immediately lands on a different unowned tile before the first auction
+  // closes -- so each gets its own independent id rather than sharing one slot.
+  startAuction(tileId) {
+    const auction = { id: nanoid(), tileId, highestBid: 0, highestBidderId: null, passedIds: [] };
+    this.auctions.push(auction);
+    this.pendingAction = { type: "auction", tileId, auctionId: auction.id, playerId: this.currentPlayer()?.id };
+    this.pushLog(`${BOARD[tileId].name} is up for auction!`);
+  }
+
+  placeBid(playerId, auctionId, amount) {
+    const auction = this.auctions.find((a) => a.id === auctionId);
+    if (!auction) return { error: "Auction not found" };
+    const player = this.playerById(playerId);
+    if (!player || player.bankrupt || player.left) return { error: "You can't bid right now" };
+    if (auction.passedIds.includes(playerId)) return { error: "You already passed on this auction" };
+    if (!Number.isInteger(amount) || amount <= auction.highestBid) {
+      return { error: "Bid must be higher than the current highest bid" };
+    }
+    if (amount > player.balance) return { error: "Not enough coins" };
+    auction.highestBid = amount;
+    auction.highestBidderId = playerId;
+    this.pushLog(`${player.name} bid ${amount} coins on ${BOARD[auction.tileId].name}.`);
+    this.maybeResolveAuction(auction.id);
+    return { ok: true };
+  }
+
+  passAuction(playerId, auctionId) {
+    const auction = this.auctions.find((a) => a.id === auctionId);
+    if (!auction) return { error: "Auction not found" };
+    if (!auction.passedIds.includes(playerId)) {
+      auction.passedIds.push(playerId);
+      this.pushLog(`${this.playerById(playerId)?.name ?? "A player"} passed on ${BOARD[auction.tileId].name}.`);
+      this.maybeResolveAuction(auction.id);
+    }
+    return { ok: true };
+  }
+
+  // Resolves once nobody's left to bid (no one bid at all -> stays unowned), or once
+  // exactly one active bidder remains *and* they're the current high bidder -- if they
+  // haven't bid yet, the auction waits for them to actually act (bid or pass) rather
+  // than handing them the property without a chance to choose.
+  maybeResolveAuction(auctionId) {
+    const auction = this.auctions.find((a) => a.id === auctionId);
+    if (!auction) return;
+    const remaining = this.activePlayers().filter((p) => !auction.passedIds.includes(p.id));
+    if (remaining.length === 0 || (remaining.length === 1 && remaining[0].id === auction.highestBidderId)) {
+      this.resolveAuction(auctionId);
+    }
+  }
+
+  resolveAuction(auctionId) {
+    const auction = this.auctions.find((a) => a.id === auctionId);
+    if (!auction) return;
+    this.auctions = this.auctions.filter((a) => a.id !== auctionId);
+    const tile = BOARD[auction.tileId];
+    if (auction.highestBidderId) {
+      const winner = this.playerById(auction.highestBidderId);
+      winner.balance -= auction.highestBid;
+      winner.properties.push(auction.tileId);
+      this.ownership[auction.tileId] = { ownerId: auction.highestBidderId, houses: 0 };
+      this.pushLog(`${winner.name} won the auction for ${tile.name} at ${auction.highestBid} coins.`);
+      this.checkBankruptcy(winner);
+    } else {
+      this.pushLog(`No bids for ${tile.name} -- it remains unowned.`);
+    }
+    if (this.pendingAction?.type === "auction" && this.pendingAction.auctionId === auctionId) {
+      this.pendingAction = null;
+    }
+  }
+
+  // A kicked/bankrupt player can't be left holding the high bid (or a live seat at the
+  // table) on an auction that hasn't closed yet -- voids their bid and treats them as
+  // having passed, then re-checks whether that auction can now resolve.
+  clearAuctionBidsFrom(playerId) {
+    for (const auction of this.auctions) {
+      if (auction.highestBidderId === playerId) {
+        auction.highestBidderId = null;
+        auction.highestBid = 0;
+        this.pushLog(`A voided bid reopened the auction for ${BOARD[auction.tileId].name}.`);
+      }
+      if (!auction.passedIds.includes(playerId)) auction.passedIds.push(playerId);
+      this.maybeResolveAuction(auction.id);
+    }
   }
 
   buyHouse(playerId, tileId) {
@@ -574,6 +665,7 @@ export class Room {
       }
       player.properties = [];
       this.clearTradesInvolving(player.id);
+      this.clearAuctionBidsFrom(player.id);
       this.pushLog(`${player.name} went bankrupt!`);
       this.checkWinner();
     }
@@ -610,6 +702,7 @@ export class Room {
       winnerId: this.winnerId,
       turnDeadline: this.turnDeadline,
       trades: this.trades,
+      auctions: this.auctions,
       board: BOARD,
     };
   }

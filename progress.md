@@ -9,6 +9,93 @@ in the same pass.
 
 ---
 
+## Pass 7 — 2026-06-28 — Auctions on declined purchases
+
+**Goal:** the last item from the original feature gap list — when a player
+declines to buy a property they land on, it should go up for auction among
+all active players rather than just staying unowned for free.
+
+**What was done:**
+- `declineBuy` now calls a new `Room.startAuction(tileId)` instead of just
+  clearing `pendingAction` and walking away. `startAuction` pushes an entry
+  onto a new `auctions[]` array (`{ id, tileId, highestBid,
+  highestBidderId, passedIds }`) and sets `pendingAction = { type:
+  "auction", tileId, auctionId, playerId }` — reusing the exact same
+  turn-blocking mechanism `awaitBuy` already used, so `rollDice`/`endTurn`
+  automatically refuse to act for the decliner until the auction they
+  caused resolves, with zero new gating code.
+- Modeled auctions as an **array**, not a single slot, specifically to
+  handle a real (if rare) interaction with earlier passes: a turn-timeout
+  kick mid-auction hands the turn to a new current player, who could
+  immediately land on a *different* unowned tile and decline that one too,
+  before the first auction has closed. An array means that just works;
+  a single-slot design would have needed to define queueing or rejection
+  behavior for a case nobody asked to think about.
+- Added `placeBid`/`passAuction`, and a `maybeResolveAuction` helper that
+  decides when bidding is actually over: zero remaining non-passed bidders
+  (no winner), or exactly one remaining *and they're already the high
+  bidder*. That second clause matters — if the last non-passed player
+  hasn't bid yet, the auction does **not** auto-award it to them; they
+  still get an explicit chance to bid or pass. Got this wrong on the first
+  pass while writing the test (almost shipped a version that handed the
+  property to whoever happened to be the last one left, with no chance to
+  decide) and corrected it before finalizing — worth noting since it's the
+  kind of bug that's easy to not notice without testing the "last remaining
+  bidder hasn't acted yet" path specifically.
+- Added `clearAuctionBidsFrom(playerId)`, wired into both `kickPlayer` and
+  `checkBankruptcy` (same pattern as Pass 5's `clearTradesInvolving`): a
+  kicked/bankrupt player's bid is voided (reset to no-bidder, not rolled
+  back to the next-highest actual bid — bid history isn't tracked) and
+  they're marked as passed so they stop counting as a live bidder.
+- `index.js`: added `placeBid`/`passAuction` socket events.
+- Client: new `components/Auction.jsx`, rendered above `Trade` in `Hud`,
+  same not-turn-gated treatment — any active player can bid or pass on any
+  open auction regardless of whose turn it is, matching how trading
+  already works. Reused existing `.trade-card`/`.action-row`/etc. CSS
+  classes rather than adding new ones.
+- Verified server-side with a direct `Room` unit test (not committed):
+  decline correctly opens an auction and blocks the decliner's own
+  rollDice/endTurn; underbidding is rejected; the auction correctly
+  auto-resolves once the sole remaining bidder is already the high
+  bidder; losing bidders' balances are untouched; the decliner's turn
+  unblocks once their auction closes; an all-pass auction leaves the
+  property unowned; a kicked bidder's winning bid is voided rather than
+  letting them win posthumously. All passed.
+
+**Why these calls:**
+- No "free walk-away" option: if declining had zero consequence, there'd
+  be no reason to ever pay full price — the entire point of the rule (in
+  the genre this game is modeled on) is that someone gets the property one
+  way or another, just possibly for less than the listed price via
+  competitive bidding.
+- Reused `pendingAction` for the auction-blocking effect rather than
+  inventing a parallel "turn is blocked" flag: it's exactly the same
+  shape of problem `awaitBuy` already solved, and keeping one mechanism
+  for "block the current player until X resolves" avoids two slightly
+  different turn-blocking systems that could drift out of sync.
+- Auctions and bidding kept independent of turn order entirely (matching
+  Pass 5's trading precedent): an auction that only let people bid on
+  their own turn would barely function as an auction — the whole
+  mechanism depends on multiple people reacting in roughly the same
+  window.
+
+**Known gaps left for later:** no minimum bid increment, no time limit on
+an individual auction (only the original decliner's 4-minute turn timer is
+affected by it, not the auction itself), voided bids drop to zero rather
+than falling back to the next-highest real bid. Persistence is the one
+remaining item from the original gap list that hasn't been tackled.
+
+**State at end of pass:** server-side auction logic verified via a direct
+`Room` unit test (temporary file, deleted before committing); `Auction.jsx`
+JSX syntax verified via an esbuild bundle check; no dev server was needed
+since this pass's logic is entirely server-side game rules plus a thin
+presentational component. `systemDesign.md` updated in place with a new
+"Auctions" subsection, wire protocol entries, invariants, and gaps
+(including removing the now-resolved "Auctions when a player declines to
+buy" line from the old gaps list).
+
+---
+
 ## Pass 6 — 2026-06-28 — Selling houses + mortgaging properties
 
 **Goal:** close the gap flagged right after trading shipped — once a

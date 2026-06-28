@@ -146,6 +146,20 @@ io.on("connection", (socket) => {
     broadcastState(room.code);
   });
 
+  socket.on("placeBid", ({ auctionId, amount }) => {
+    const room = getRoom(socket);
+    if (!room) return;
+    room.placeBid(getPlayerId(socket), auctionId, amount);
+    broadcastState(room.code);
+  });
+
+  socket.on("passAuction", ({ auctionId }) => {
+    const room = getRoom(socket);
+    if (!room) return;
+    room.passAuction(getPlayerId(socket), auctionId);
+    broadcastState(room.code);
+  });
+
   socket.on("proposeTrade", (payload) => {
     const room = getRoom(socket);
     if (!room) return;
