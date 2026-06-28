@@ -125,6 +125,27 @@ io.on("connection", (socket) => {
     broadcastState(room.code);
   });
 
+  socket.on("proposeTrade", (payload) => {
+    const room = getRoom(socket);
+    if (!room) return;
+    room.proposeTrade(getPlayerId(socket), payload || {});
+    broadcastState(room.code);
+  });
+
+  socket.on("respondTrade", ({ tradeId, accept }) => {
+    const room = getRoom(socket);
+    if (!room) return;
+    room.respondTrade(getPlayerId(socket), tradeId, !!accept);
+    broadcastState(room.code);
+  });
+
+  socket.on("cancelTrade", ({ tradeId }) => {
+    const room = getRoom(socket);
+    if (!room) return;
+    room.cancelTrade(getPlayerId(socket), tradeId);
+    broadcastState(room.code);
+  });
+
   socket.on("endTurn", () => {
     const room = getRoom(socket);
     if (!room) return;

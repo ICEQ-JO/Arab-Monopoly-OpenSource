@@ -9,6 +9,79 @@ in the same pass.
 
 ---
 
+## Pass 5 — 2026-06-28 — Player-to-player trading
+
+**Goal:** the next item on the open gap list from earlier passes — let
+players trade properties and coins with each other directly, rather than
+the only economic interactions being buying-from-the-bank and rent.
+
+**What was done:**
+- Added `Room.trades[]` and four methods: `proposeTrade(fromId, {...})`,
+  `respondTrade(playerId, tradeId, accept)`, `cancelTrade(playerId,
+  tradeId)`, and a shared `isTradeable(tileId, ownerId)` check (owned by
+  the right player, a property/transit/utility tile, and undeveloped —
+  `!owned.houses`).
+- Deliberately **not turn-gated**: any two active players can propose or
+  respond to a trade regardless of whose turn it is or whether a
+  `pendingAction` is open. Trading is a side negotiation, not a turn
+  action, so it doesn't interact with `turnIndex`/`pendingAction` at all.
+- `respondTrade`'s accept path **re-validates everything from scratch**
+  (ownership, development, both players' funds) rather than trusting the
+  state captured at proposal time — the gap between propose and accept is
+  unbounded, so anything the trade depends on could have changed (a
+  property sold, a house built, money spent, even a different trade
+  involving the same tile executing first). A stale/invalid trade is
+  dropped with an error instead of partially applying.
+- Added `Room.clearTradesInvolving(playerId)`, wired into both
+  `kickPlayer` and `checkBankruptcy`, so a trade can never dangle
+  referencing a player who's no longer in the game.
+- `index.js`: added `proposeTrade`/`respondTrade`/`cancelTrade` socket
+  events, each a thin call into the matching `Room` method followed by the
+  usual `broadcastState`.
+- Client: new `components/Trade.jsx`, rendered in `Hud` whenever the game
+  is started and there's no winner. Shows incoming offers (accept/decline),
+  outgoing offers (cancel), and a form to propose a new one — checkbox
+  pickers for both sides' tradeable tiles (computed client-side the same
+  way the server does, purely so the UI doesn't offer something that'll
+  just bounce; the server is still the actual authority).
+- Verified server-side with a direct `Room` unit test (not committed):
+  propose→decline leaves ownership untouched; propose→accept correctly
+  swaps ownership both directions and moves money both directions;
+  offering/requesting a developed property is rejected; kicking a player
+  who's party to a pending trade clears that trade automatically. All
+  passed.
+
+**Why these calls:**
+- Not turn-gated: real trading in this genre of game happens constantly
+  between turns, mid-negotiation, sometimes spanning several other
+  players' turns — gating it the same way as roll/buy/build would make it
+  far less useful and doesn't match how the mechanic is actually used.
+- Re-validate at accept rather than lock state at propose: locking would
+  mean either blocking the proposer from doing anything else with those
+  properties until the offer resolves (intrusive, and trades can sit open
+  indefinitely) or allowing it and then having to define what happens to a
+  trade referencing a property that got sold/mortgaged/rented out from
+  under it. Re-validating at the one moment it actually matters (the
+  instant of acceptance) sidesteps both problems.
+- Houses-only restriction (no developed properties tradeable): the
+  alternative — figuring out what a half-built color group means for the
+  recipient, or moving houses along with the property — is real
+  complexity for a rule most existing implementations of this genre avoid
+  by just requiring you sell first. Took the same shortcut deliberately
+  rather than designing a new rule no one asked for.
+
+**Known gaps left for later:** no counter-offer flow (decline is final,
+re-propose from scratch); no trade volume/rate limiting; mortgaging,
+auctions, and persistence are all still open from earlier passes.
+
+**State at end of pass:** server-side trade logic verified via a direct
+`Room` unit test (temporary file, deleted before committing); JSX syntax
+for the new `Trade.jsx` verified via an esbuild bundle check (no dev
+server was run for this pass). `systemDesign.md` updated in place with a
+new "Trading" subsection plus protocol table and gaps-list updates.
+
+---
+
 ## Pass 4 — 2026-06-28 — 20-second disconnect grace window (narrows Pass 3's kick policy)
 
 **Goal:** explicit user direction to fix the gap flagged at the end of

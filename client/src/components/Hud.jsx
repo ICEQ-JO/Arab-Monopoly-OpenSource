@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { socket } from "../socket";
+import Trade from "./Trade";
 
 function TurnCountdown({ deadline }) {
   const [now, setNow] = useState(Date.now());
@@ -101,6 +102,8 @@ export default function Hud({ state, myId, onLeave }) {
           )}
         </div>
       )}
+
+      {state.started && !state.winnerId && <Trade state={state} myId={myId} />}
 
       {state.winnerId && (
         <div className="hud-section winner-banner">

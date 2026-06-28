@@ -27,6 +27,7 @@ export class Room {
     this.turnTimer = null;
     this.turnDeadline = null;
     this.notify = null; // set by the server to broadcast state after an autonomous timeout kick
+    this.trades = []; // { id, fromId, toId, offerProperties, offerMoney, requestProperties, requestMoney }
   }
 
   addPlayer(id, name, token) {
@@ -106,6 +107,7 @@ export class Room {
     player.properties = [];
     player.left = true;
     if (this.pendingAction?.playerId === playerId) this.pendingAction = null;
+    this.clearTradesInvolving(playerId);
     this.pushLog(`${player.name} ${reasonLabel}.`);
     this.checkWinner();
     if (!this.winnerId && wasCurrent) {
@@ -403,6 +405,108 @@ export class Room {
     to.balance += amount;
   }
 
+  // A property can only be traded while it's undeveloped -- avoids juggling house
+  // counts across a swap (real rules also require selling houses before trading).
+  isTradeable(tileId, ownerId) {
+    const owned = this.ownership[tileId];
+    const tile = BOARD[tileId];
+    if (!owned || owned.ownerId !== ownerId || !tile) return false;
+    if (tile.type !== TILE_TYPES.PROPERTY && tile.type !== TILE_TYPES.TRANSIT && tile.type !== TILE_TYPES.UTILITY) return false;
+    return !owned.houses;
+  }
+
+  proposeTrade(fromId, { toId, offerProperties = [], offerMoney = 0, requestProperties = [], requestMoney = 0 }) {
+    const fromPlayer = this.playerById(fromId);
+    const toPlayer = this.playerById(toId);
+    if (!fromPlayer || fromPlayer.bankrupt || fromPlayer.left) return { error: "You can't trade right now" };
+    if (!toPlayer || toPlayer.bankrupt || toPlayer.left || toId === fromId) return { error: "Invalid trade partner" };
+    if (!Number.isInteger(offerMoney) || offerMoney < 0 || !Number.isInteger(requestMoney) || requestMoney < 0) {
+      return { error: "Coin amounts must be non-negative whole numbers" };
+    }
+    if (offerProperties.length === 0 && requestProperties.length === 0 && offerMoney === 0 && requestMoney === 0) {
+      return { error: "A trade needs to include at least one property or coins" };
+    }
+    if (!offerProperties.every((id) => this.isTradeable(id, fromId))) {
+      return { error: "You can only offer undeveloped properties you own" };
+    }
+    if (!requestProperties.every((id) => this.isTradeable(id, toId))) {
+      return { error: "You can only request undeveloped properties they own" };
+    }
+
+    const trade = {
+      id: nanoid(),
+      fromId,
+      toId,
+      offerProperties,
+      offerMoney,
+      requestProperties,
+      requestMoney,
+    };
+    this.trades.push(trade);
+    this.pushLog(`${fromPlayer.name} proposed a trade with ${toPlayer.name}.`);
+    return { ok: true, tradeId: trade.id };
+  }
+
+  respondTrade(playerId, tradeId, accept) {
+    const trade = this.trades.find((t) => t.id === tradeId && t.toId === playerId);
+    if (!trade) return { error: "Trade not found" };
+    this.trades = this.trades.filter((t) => t.id !== tradeId);
+
+    const fromPlayer = this.playerById(trade.fromId);
+    const toPlayer = this.playerById(trade.toId);
+
+    if (!accept) {
+      this.pushLog(`${toPlayer.name} declined ${fromPlayer.name}'s trade offer.`);
+      return { ok: true };
+    }
+
+    // Re-validate everything: ownership, development, and funds may have all
+    // changed in the time between the offer being made and being accepted.
+    if (!fromPlayer || fromPlayer.bankrupt || fromPlayer.left || !toPlayer || toPlayer.bankrupt || toPlayer.left) {
+      return { error: "One of the players is no longer in the game" };
+    }
+    if (!trade.offerProperties.every((id) => this.isTradeable(id, trade.fromId))) {
+      return { error: "The offer is no longer valid" };
+    }
+    if (!trade.requestProperties.every((id) => this.isTradeable(id, trade.toId))) {
+      return { error: "The request is no longer valid" };
+    }
+    if (fromPlayer.balance < trade.offerMoney || toPlayer.balance < trade.requestMoney) {
+      return { error: "One of the players can no longer afford this trade" };
+    }
+
+    for (const tileId of trade.offerProperties) {
+      this.ownership[tileId].ownerId = trade.toId;
+      fromPlayer.properties = fromPlayer.properties.filter((id) => id !== tileId);
+      toPlayer.properties.push(tileId);
+    }
+    for (const tileId of trade.requestProperties) {
+      this.ownership[tileId].ownerId = trade.fromId;
+      toPlayer.properties = toPlayer.properties.filter((id) => id !== tileId);
+      fromPlayer.properties.push(tileId);
+    }
+    if (trade.offerMoney > 0) this.transferMoney(trade.fromId, trade.toId, trade.offerMoney);
+    if (trade.requestMoney > 0) this.transferMoney(trade.toId, trade.fromId, trade.requestMoney);
+
+    this.pushLog(`${fromPlayer.name} and ${toPlayer.name} completed a trade.`);
+    this.checkBankruptcy(fromPlayer);
+    this.checkBankruptcy(toPlayer);
+    return { ok: true };
+  }
+
+  cancelTrade(playerId, tradeId) {
+    const trade = this.trades.find((t) => t.id === tradeId && t.fromId === playerId);
+    if (!trade) return { error: "Trade not found" };
+    this.trades = this.trades.filter((t) => t.id !== tradeId);
+    this.pushLog(`${this.playerById(playerId).name} cancelled their trade offer.`);
+    return { ok: true };
+  }
+
+  // Trades referencing a player who's no longer active would otherwise dangle forever.
+  clearTradesInvolving(playerId) {
+    this.trades = this.trades.filter((t) => t.fromId !== playerId && t.toId !== playerId);
+  }
+
   checkBankruptcy(player) {
     if (player.balance < 0 && !player.bankrupt) {
       player.bankrupt = true;
@@ -410,6 +514,7 @@ export class Room {
         delete this.ownership[tileId];
       }
       player.properties = [];
+      this.clearTradesInvolving(player.id);
       this.pushLog(`${player.name} went bankrupt!`);
       this.checkWinner();
     }
@@ -445,6 +550,7 @@ export class Room {
       pendingAction: this.pendingAction,
       winnerId: this.winnerId,
       turnDeadline: this.turnDeadline,
+      trades: this.trades,
       board: BOARD,
     };
   }

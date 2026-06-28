@@ -230,6 +230,65 @@
   margin-top: 10px;
 }
 
+.trade-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.trade-card {
+  background: var(--panel-2);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.trade-summary p {
+  margin: 2px 0;
+}
+
+.trade-side {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.trade-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 8px 0;
+}
+
+.trade-columns {
+  display: flex;
+  gap: 16px;
+  margin: 8px 0;
+}
+
+.trade-columns > div {
+  flex: 1;
+}
+
+.trade-col-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.trade-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  margin: 4px 0;
+}
+
+.trade-checkbox input {
+  width: auto;
+}
+
 .build-btn {
   display: block;
   width: 100%;

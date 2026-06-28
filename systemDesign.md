@@ -80,6 +80,9 @@ One `Room` instance per active game (keyed by room code).
   so that a *server-initiated* state change — specifically, the turn timer
   firing on its own, with no client request to respond to — can still push
   the new state to everyone in the room.
+- `trades[]` — `{ id, fromId, toId, offerProperties, offerMoney,
+  requestProperties, requestMoney }`. Pending trade offers between any two
+  active players — see "Trading" below.
 
 **Core flow:**
 ```
@@ -109,10 +112,11 @@ rollDice(playerId)
   expired disconnect grace window, manual leaves, *and* turn-timeouts (see
   below): clears any pending `graceTimer` for that player, releases
   properties back to the bank, sets `left: true`, clears a `pendingAction`
-  that belonged to them, logs `reasonLabel`, calls `checkWinner()`, and —
-  only if the kicked player was the current player and the game didn't
-  just end — calls `endTurn()` to move play along. Also reassigns `hostId`
-  if the host themselves was kicked.
+  that belonged to them, clears any `trades` they're party to (see
+  "Trading" below), logs `reasonLabel`, calls `checkWinner()`, and — only
+  if the kicked player was the current player and the game didn't just
+  end — calls `endTurn()` to move play along. Also reassigns `hostId` if
+  the host themselves was kicked.
 - `checkWinner()` is shared by `checkBankruptcy` and `kickPlayer`: if one
   or zero non-bankrupt/non-left players remain, the turn timer is cleared
   and a winner is declared (or, in the edge case where literally everyone
@@ -158,6 +162,39 @@ and schedules a `graceTimer`. Two ways out:
 A **manual leave is intentionally not routed through the grace window** —
 `leaveRoom` calls `kickPlayer` directly. The grace window exists to absorb
 involuntary network blips, not to give a deliberate quit a 20-second undo.
+
+**Trading:** any two active (non-bankrupt, non-left) players can trade,
+at any time — trading is **not gated on turn order or `pendingAction`**;
+it's a side negotiation, not a turn action. A trade offer is one-directional
+in shape but two-sided in content: the proposer's `offerProperties` +
+`offerMoney` for the target's `requestProperties` + `requestMoney`.
+- `proposeTrade(fromId, {...})` validates both players are active, the
+  proposer actually owns every `offerProperties` tile and the target owns
+  every `requestProperties` tile, both via `isTradeable()` (must be a
+  property/transit/utility tile, owned by the right player, **and
+  undeveloped** — `!owned.houses` — mirroring the classic rule that you
+  sell houses before trading a property, sidestepping the question of
+  what happens to houses mid-swap), money amounts are non-negative
+  integers, and the trade isn't completely empty. On success it's pushed
+  onto `trades[]`, untouched until someone responds.
+- `respondTrade(playerId, tradeId, accept)` — only the trade's `toId` can
+  respond. A decline just removes the trade. An accept **re-validates
+  everything from scratch** (ownership, development, and both players'
+  funds) before touching any state — anything could have changed in the
+  time between the offer being made and being accepted (a property sold
+  off, a house built, a balance spent elsewhere, even another trade
+  involving the same property executing first). If re-validation fails,
+  the trade is dropped with an error rather than partially applied. If it
+  passes: ownership flips both directions, each player's `properties[]`
+  array is updated, and `transferMoney` runs in both directions (offer
+  money proposer→target, request money target→proposer) — then
+  `checkBankruptcy` runs on both players defensively (shouldn't ever
+  trigger, since funds were just verified, but cheap to call).
+- `cancelTrade(playerId, tradeId)` — only the original proposer (`fromId`)
+  can withdraw their own pending offer.
+- `clearTradesInvolving(playerId)` is called from both `kickPlayer` and
+  `checkBankruptcy` so a trade never dangles after one side of it leaves
+  the game mid-negotiation.
 
 ### 2.4 `index.js` — Socket.io wiring
 Thin glue only — no game logic. Each socket event handler calls the matching
@@ -262,6 +299,16 @@ the next remaining active player automatically becomes host.
   else's disconnect grace window currently ticking) — and the log feed.
   Every interactive control just emits a socket event; it never mutates
   local state directly.
+- `components/Trade.jsx` — rendered in the `Hud` whenever the game is
+  started and there's no winner yet. Shows incoming offers (`toId ===
+  myId`) with Accept/Decline, outgoing offers (`fromId === myId`) with
+  Cancel, and a collapsible "Propose a trade" form: pick a target player,
+  checkbox-select from your own and their tradeable tiles (computed
+  client-side the same way the server does — owned, undeveloped — purely
+  to avoid offering something that'll just get rejected; the server
+  re-checks all of this regardless), and coin amounts on both sides. Like
+  every other control, it only emits events (`proposeTrade`/`respondTrade`
+  /`cancelTrade`) and renders whatever `state.trades` comes back.
 
 ## 4. Wire protocol (Socket.io events)
 
@@ -278,6 +325,9 @@ the next remaining active player automatically becomes host.
 | `buyHouse` | `{ tileId }` | requires full color-group ownership |
 | `endTurn` | — | current-player-only; rejected if `pendingAction` set |
 | `leaveRoom` | — | graceful manual exit; forfeits the seat exactly like a disconnect would |
+| `proposeTrade` | `{ toId, offerProperties, offerMoney, requestProperties, requestMoney }` | not turn-gated; either side can be any active player |
+| `respondTrade` | `{ tradeId, accept }` | only the trade's `toId` may respond |
+| `cancelTrade` | `{ tradeId }` | only the trade's `fromId` may cancel |
 
 **Server → Client**
 | Event | Payload |
@@ -295,6 +345,7 @@ the next remaining active player automatically becomes host.
   lastCard: { deck, text } | null,
   pendingAction: {...} | null,
   turnDeadline: <epoch ms> | null,  // for the client's countdown display only
+  trades: [...],         // see §2.3 "Trading"
   board: BOARD,          // static, sent every time (cheap, simplifies client)
 }
 ```
@@ -336,9 +387,21 @@ grows much larger or tick rate increases.
   is set there is no path back into the active rotation for that player in
   that game — by design, mirroring "kicked is kicked" rather than treating
   it as a recoverable state.
+- **Trading is not turn-gated.** Unlike rolling/buying/building, a trade
+  can be proposed or accepted by anyone, anytime, regardless of whose turn
+  it is. Only `respondTrade`/`cancelTrade`'s *authorization* (must be the
+  trade's `toId`/`fromId`) is checked, never turn order.
+- **A trade offer's validity is re-checked at acceptance time, not trusted
+  from proposal time.** The gap between proposing and accepting a trade is
+  unbounded (could be the whole game), so anything the offer depends on —
+  ownership, development, available funds — could have changed; accepting
+  re-derives all of it from current state rather than replaying a stale
+  snapshot.
+- **Only undeveloped properties can be traded.** Avoids the open question
+  of what happens to houses/hotels mid-swap (and matches the familiar rule
+  that you sell houses before trading a property).
 
 ## 6. Known gaps (not yet built)
-- Player-to-player trading
 - Mortgaging properties
 - Auctions when a player declines to buy
 - Persistent rooms (everything is wiped on server restart)
@@ -355,3 +418,10 @@ grows much larger or tick rate increases.
   the grace window only applies once `started` is true. Probably fine
   (rejoining a lobby is just `joinRoom` again with the same code), but
   worth naming as an intentional asymmetry.
+- Auctions when a player declines to buy
+- No counter-offer flow for trades: declining is final — to propose
+  something different, the original proposer has to start a brand new
+  trade rather than the recipient adjusting and bouncing it back.
+- No limit on how many trades a player can have open at once, and no
+  per-player rate limiting on `proposeTrade` — fine for a casual game
+  between friends, not something that's been hardened against spam.
