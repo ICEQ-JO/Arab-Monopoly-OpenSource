@@ -2,16 +2,30 @@ import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { nanoid } from "nanoid";
 import { Room, generateRoomCode } from "./game/Room.js";
 import { loadSnapshots, saveSnapshots } from "./persistence.js";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 4000;
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:5173";
 
 const app = express();
 app.use(cors({ origin: CLIENT_ORIGIN }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
+
+// If the client has been built (npm run build in client/), serve it directly so
+// the whole game is reachable on this one port/origin -- no separate client dev
+// server or CORS setup needed, and only one URL to tunnel/share for playtesting.
+const clientDist = path.join(__dirname, "..", "..", "client", "dist");
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+  app.get(/^(?!\/health).*/, (_req, res) => res.sendFile(path.join(clientDist, "index.html")));
+  console.log(`Serving built client from ${clientDist}`);
+}
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
