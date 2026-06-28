@@ -9,6 +9,93 @@ in the same pass.
 
 ---
 
+## Pass 4 — 2026-06-28 — 20-second disconnect grace window (narrows Pass 3's kick policy)
+
+**Goal:** explicit user direction to fix the gap flagged at the end of
+Pass 3 — zero tolerance for *any* disconnect was too harsh (a 2-second
+wifi blip ended your game exactly like quitting on purpose) — by giving a
+disconnected player a fixed 20-second window to reconnect before the seat
+is actually forfeited.
+
+**What was done:**
+- Reinstated a minimal, deliberately time-boxed version of the
+  token/rejoin mechanism Pass 3 removed: `Room.addPlayer` takes a `token`
+  again, `Room.verifyToken` is back, and `createRoom`/`joinRoom` mint and
+  return one. Unlike Pass 2, this token's *only* job is authorizing a
+  `rejoinRoom` within the grace window — there's no indefinite hold behind
+  it.
+- Added `Room.startGracePeriod(playerId)` / `cancelGracePeriod(playerId)`:
+  a disconnect now sets `connected: false` and starts a 20-second
+  (`DISCONNECT_GRACE_MS`) `graceTimer` per player (not a room-wide timer —
+  multiple players could be mid-grace-window simultaneously) rather than
+  calling `kickPlayer` immediately. A successful `rejoinRoom` cancels the
+  timer and flips `connected` back to `true`, untouched otherwise.
+  Expiry calls `kickPlayer(playerId, "didn't reconnect in time and was
+  removed from the game")` — the existing exit path, unchanged.
+  `kickPlayer` itself now also clears any leftover `graceTimer` defensively.
+- `index.js`: disconnect now calls `room.startGracePeriod` instead of
+  `room.kickPlayer` directly (mid-game only — pre-start disconnects still
+  remove the player outright, no grace window in the lobby). Added the
+  `rejoinRoom` event back, gated on `verifyToken` *and* the player not
+  already being `left`/`bankrupt` (a kicked seat — i.e. an *expired* grace
+  window — can't be reclaimed; the window is the only door back in, and it
+  closes for good once it closes).
+- **Manual leave deliberately does *not* go through the grace window** —
+  `leaveRoom` still calls `kickPlayer` directly, immediately. The window
+  is there to absorb involuntary drops, not to let a deliberate quit be
+  undone for 20 seconds.
+- Client: reinstated `client/src/session.js` (localStorage wrapper for
+  `{ code, playerId, token }`) and rejoin-on-connect logic in `App.jsx`
+  (tries `rejoinRoom` on every socket `connect`, including socket.io's own
+  auto-reconnect attempts; clears the saved session if the server rejects
+  it). `Hud.jsx` now distinguishes a *transient* "reconnecting..." badge
+  (`connected: false && !left`) from the *permanent* "left/kicked" badge
+  (`left: true`) — these used to be the same concept before Pass 3 removed
+  the transient one entirely.
+- Verified server-side with a direct `Room` unit test (temporary copy of
+  the file with `DISCONNECT_GRACE_MS` shortened to 800ms, deleted after):
+  confirmed a reconnect within the window cancels the kick and the seat
+  survives even past where the original window would have expired;
+  confirmed no-reconnect leads to a kick exactly at window expiry with
+  `notify` firing; confirmed a kicked player's token still "matches" at
+  the identity level but is correctly blocked by the `left` check that
+  `index.js`'s `rejoinRoom` handler applies on top of `verifyToken`.
+
+**Why these calls:**
+- A *fixed* 20s window rather than something configurable or scaled to
+  game state: simplest thing that addresses the actual complaint (brief
+  blips shouldn't be fatal) without re-introducing the open-ended
+  complexity Pass 3 walked away from. No one asked for per-room tuning.
+- Reinstated the token mechanism rather than inventing a different
+  reconnect-auth scheme: it's exactly the right shape for "prove you're
+  the same player within a short window" and had already been built once
+  (Pass 2) — no reason to design something new for a narrower version of
+  the same problem.
+- Manual leave still bypasses the grace window: conflating "I meant to
+  leave" with "my connection dropped" would mean a deliberate quit briefly
+  leaves a phantom warm seat for no reason — the distinction is cheap to
+  keep (two call sites, same `kickPlayer`, different timing) and avoids
+  confusing behavior (other players seeing "reconnecting..." for someone
+  who isn't coming back).
+- Pre-start (lobby) disconnects still get no grace window: there's no game
+  state worth protecting before the game starts, and rejoining a lobby
+  that hasn't begun is just `joinRoom` again with the same code — adding a
+  grace window there would protect nothing.
+
+**Known gaps left for later:** the grace window has no shared countdown
+visible to other players (just a static "reconnecting..." badge); no
+personal "you were kicked because X" client-side notification distinct
+from the shared log; trading, mortgaging, auctions, and persistence are
+all still open from earlier passes.
+
+**State at end of pass:** server-side grace-window logic verified via a
+direct `Room` unit test (temporary file, deleted before committing); no
+dev servers were left running. `systemDesign.md` updated in place to
+describe the grace window as the current model, not appended alongside
+the now-superseded "no reconnect at all" description from Pass 3.
+
+---
+
 ## Pass 3 — 2026-06-28 — Strict kick policy + turn timer (supersedes Pass 2's reconnect)
 
 **Goal:** explicit user direction to replace Pass 2's "hold the seat and

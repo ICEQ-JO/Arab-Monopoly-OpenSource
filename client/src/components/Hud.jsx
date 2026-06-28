@@ -121,6 +121,9 @@ export default function Hud({ state, myId, onLeave }) {
               {p.inHolding && <span className="badge">in holding</span>}
               {p.bankrupt && <span className="badge">bankrupt</span>}
               {p.left && <span className="badge badge-warn">left/kicked</span>}
+              {!p.left && !p.bankrupt && !p.connected && (
+                <span className="badge badge-warn">reconnecting...</span>
+              )}
             </li>
           ))}
         </ul>

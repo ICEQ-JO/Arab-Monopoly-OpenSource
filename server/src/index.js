@@ -37,13 +37,14 @@ function bindSocket(socket, roomCode, playerId) {
 io.on("connection", (socket) => {
   socket.on("createRoom", ({ name }, cb) => {
     const playerId = nanoid();
+    const token = nanoid();
     const code = generateRoomCode();
     const room = new Room(code, playerId);
     room.notify = () => broadcastState(code);
-    room.addPlayer(playerId, name || "Player");
+    room.addPlayer(playerId, name || "Player", token);
     rooms.set(code, room);
     bindSocket(socket, code, playerId);
-    cb?.({ ok: true, code, playerId });
+    cb?.({ ok: true, code, playerId, token });
     broadcastState(code);
   });
 
@@ -53,9 +54,22 @@ io.on("connection", (socket) => {
     if (room.started) return cb?.({ error: "Game already started" });
     if (room.players.length >= 6) return cb?.({ error: "Room full" });
     const playerId = nanoid();
-    room.addPlayer(playerId, name || "Player");
+    const token = nanoid();
+    room.addPlayer(playerId, name || "Player", token);
     bindSocket(socket, room.code, playerId);
-    cb?.({ ok: true, code: room.code, playerId });
+    cb?.({ ok: true, code: room.code, playerId, token });
+    broadcastState(room.code);
+  });
+
+  socket.on("rejoinRoom", ({ code, playerId, token }, cb) => {
+    const room = rooms.get(code?.toUpperCase());
+    if (!room) return cb?.({ error: "Room not found" });
+    if (!room.verifyToken(playerId, token)) return cb?.({ error: "Invalid session" });
+    const player = room.playerById(playerId);
+    if (player.left || player.bankrupt) return cb?.({ error: "You were removed from this game" });
+    bindSocket(socket, room.code, playerId);
+    room.cancelGracePeriod(playerId);
+    cb?.({ ok: true, code: room.code, playerId, token });
     broadcastState(room.code);
   });
 
@@ -131,8 +145,8 @@ io.on("connection", (socket) => {
     const room = rooms.get(code);
     if (!room) return;
     if (room.started) {
-      // A lost connection mid-game forfeits the seat outright -- no grace period, no rejoin.
-      room.kickPlayer(playerId, "disconnected and was removed from the game");
+      // A 20s grace window to reconnect before the seat is forfeited -- see Room.startGracePeriod.
+      room.startGracePeriod(playerId);
     } else {
       room.removePlayer(playerId);
     }

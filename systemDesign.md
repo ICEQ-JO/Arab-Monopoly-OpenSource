@@ -49,12 +49,18 @@ display results.
 One `Room` instance per active game (keyed by room code).
 
 **State held per room:**
-- `players[]` — `{ id, name, color, balance, position, inHolding,
-  holdingTurns, holdingFreeCard, bankrupt, left, properties[] }`. `id` is a
-  stable identity (nanoid) independent of any socket — see §2.4. `left` is
-  set by `kickPlayer` (disconnect, manual leave, or turn-timeout — see
-  below) and, like `bankrupt`, permanently removes the player from the
-  active rotation while keeping them visible in the player list.
+- `players[]` — `{ id, token, name, color, connected, graceTimer, balance,
+  position, inHolding, holdingTurns, holdingFreeCard, bankrupt, left,
+  properties[] }`. `id` is a stable identity (nanoid) independent of any
+  socket — see §2.4. `token` is a private secret (stripped before
+  `toState()` ever broadcasts it) that authorizes reclaiming a seat within
+  the disconnect grace window — see "Disconnect grace window" below.
+  `left` is set by `kickPlayer` (disconnect-after-grace-expires, manual
+  leave, or turn-timeout) and, like `bankrupt`, permanently removes the
+  player from the active rotation while keeping them visible in the player
+  list. `connected` and `graceTimer` (also stripped from `toState()`,
+  since it's a raw `setTimeout` handle, not JSON-safe) track an *in-progress*
+  disconnect that hasn't yet become a kick.
 - `ownership{}` — `tileId -> { ownerId, houses }` (sparse; only owned tiles
   have entries)
 - `turnIndex`, `started`, `winnerId`
@@ -99,8 +105,9 @@ rollDice(playerId)
 - `checkBankruptcy` triggers when balance goes negative: releases all of
   that player's properties back to the bank, marks them bankrupt, and calls
   `checkWinner()`.
-- `kickPlayer(playerId, reasonLabel)` is the single exit path for
-  disconnects, manual leaves, *and* turn-timeouts (see below): releases
+- `kickPlayer(playerId, reasonLabel)` is the single exit path for an
+  expired disconnect grace window, manual leaves, *and* turn-timeouts (see
+  below): clears any pending `graceTimer` for that player, releases
   properties back to the bank, sets `left: true`, clears a `pendingAction`
   that belonged to them, logs `reasonLabel`, calls `checkWinner()`, and —
   only if the kicked player was the current player and the game didn't
@@ -125,12 +132,32 @@ rollDice(playerId)
 *entire* turn — covering rolling, any buy/decline decision, and building —
 regardless of how many sub-actions happen within it (e.g. doubles re-rolls
 don't reset the clock). If the timer fires before the turn ends naturally,
-the server kicks that player exactly as if they'd disconnected, then
-advances the turn. This is enforced **server-side only**: the
-`turnDeadline` sent to clients is purely informational (for a countdown
-display) — a player can't extend their time by tampering with their own
-clock or socket traffic, since the authoritative `setTimeout` lives in the
-`Room` instance on the server.
+the server kicks that player exactly as if a disconnect grace window had
+expired, then advances the turn. This is enforced **server-side only**:
+the `turnDeadline` sent to clients is purely informational (for a
+countdown display) — a player can't extend their time by tampering with
+their own clock or socket traffic, since the authoritative `setTimeout`
+lives in the `Room` instance on the server. The turn timer and the
+disconnect grace window below are independent: if it's your turn and you
+disconnect, whichever fires first wins (in practice, almost always the
+20-second grace window, since it's much shorter than 4 minutes).
+
+**Disconnect grace window (20 seconds):** a *lost connection* doesn't kick
+a player outright anymore — it starts a 20-second (`DISCONNECT_GRACE_MS`)
+countdown via `startGracePeriod(playerId)`, which sets `connected: false`
+and schedules a `graceTimer`. Two ways out:
+- **Reconnect in time** (`cancelGracePeriod`, triggered by a successful
+  `rejoinRoom` — see §2.4): clears the `graceTimer`, flips `connected`
+  back to `true`. Balance, position, properties, turn order — nothing
+  about the game state was ever touched, since the player was never
+  actually removed from anything during the grace window.
+- **Grace window expires** (the `graceTimer`'s callback fires): calls
+  `kickPlayer(playerId, "didn't reconnect in time and was removed from the
+  game")` — same end state as any other kick.
+
+A **manual leave is intentionally not routed through the grace window** —
+`leaveRoom` calls `kickPlayer` directly. The grace window exists to absorb
+involuntary network blips, not to give a deliberate quit a 20-second undo.
 
 ### 2.4 `index.js` — Socket.io wiring
 Thin glue only — no game logic. Each socket event handler calls the matching
@@ -145,27 +172,39 @@ module-level maps translate between them per connection:
 - `socketToRoom: Map<socket.id, roomCode>`
 - `socketToPlayer: Map<socket.id, playerId>`
 
-`createRoom`/`joinRoom` mint a fresh `playerId` and return it in the ack.
-Every other handler resolves the caller's `playerId` via
+`createRoom`/`joinRoom` mint a fresh `{ playerId, token }` pair and return
+both in the ack — `token` is a write-once secret the client holds onto
+(localStorage) purely to reclaim a seat within the 20-second disconnect
+grace window (§2.3); it has no other purpose and is never broadcast to
+other clients. Every other handler resolves the caller's `playerId` via
 `socketToPlayer.get(socket.id)` before calling into `Room` — `Room`
 methods never see a raw socket id. Right after a room is created,
 `index.js` also wires `room.notify = () => broadcastState(code)` so the
-room's own internal timer (see §2.3) can push state on its own.
+room's own internal timers (turn timer, grace-window timer) can push state
+on their own, with no client request to respond to.
 
-**Disconnect = kick, full stop. There is no reconnect.** This was a
-deliberate pivot away from an earlier design (see [progress.md](progress.md)
-Pass 2 → Pass 3) that tried to hold a disconnected player's seat
-indefinitely so they could rejoin later. That added real complexity (a
-private `token` secret, a `connected` flag, a `rejoinRoom` event, client-side
-session persistence) for a payoff — recovering from a dropped connection —
-that's now explicitly out of scope: **any** lost connection, even a
-momentary blip, forfeits the seat immediately, with no grace window. On
-`socket.io`'s `disconnect` event, the server looks at `room.started`:
+**Disconnect → 20s grace window → kick if not reconnected.** This is
+narrower than an earlier design (see [progress.md](progress.md) Pass 2)
+that held a disconnected seat open *indefinitely*, and stricter than the
+in-between design (Pass 3) that kicked on *any* disconnect with zero
+tolerance. Pass 4 settled here deliberately: enough slack to survive a
+momentary wifi blip or a quick refresh, not enough to let a player stall a
+game by staying offline. On `socket.io`'s `disconnect` event, the server
+looks at `room.started`:
 - **not started** (still in the lobby) → `room.removePlayer()` removes
-  them outright (host reassignment happens here, see below).
-- **started** → `room.kickPlayer(playerId, "disconnected and was removed
-  from the game")` — same forfeiture as a manual leave or a turn-timeout
-  (§2.3), just with a different log message.
+  them outright, same as always — no grace window pre-start, since there's
+  no game state worth protecting yet (host reassignment happens here, see
+  below).
+- **started** → `room.startGracePeriod(playerId)` (§2.3) — *not* an
+  immediate kick. The seat is only actually forfeited if the 20-second
+  window lapses without a successful `rejoinRoom`.
+
+**Reconnect (`rejoinRoom` event):** client sends `{ code, playerId,
+token }`. The server validates the token via `room.verifyToken`, rejects
+if the player is already `left` or `bankrupt` (a kicked seat can't be
+reclaimed — the grace window is the *only* path back in, and only before
+it expires), then re-binds the new socket to the existing `playerId` and
+calls `room.cancelGracePeriod(playerId)`.
 
 **Manual leave (`leaveRoom` event):** the client's "Leave" button emits
 this explicitly (rather than just closing the socket) so the server can
@@ -188,17 +227,24 @@ the next remaining active player automatically becomes host.
 ## 3. Client (`client/src/`)
 
 - `socket.js` — one shared `socket.io-client` instance for the whole app.
-- `App.jsx` — top-level: shows `Lobby` until `onJoined` fires, then listens
-  for the `state` event and re-renders `Board` + `Hud` with whatever was
-  last received. There is **no client-side persistence at all** — no
-  localStorage, no auto-rejoin. If the underlying socket disconnects for
-  any reason, the `disconnect` handler just resets straight back to
-  `Lobby`, since the server will already have kicked that player by the
-  time any client code could react. Holds no derived game state of its
-  own — `myId` is the stable `playerId` returned by the server, never
-  `socket.id`.
-- `components/Lobby.jsx` — create-room / join-room form, calls
-  `createRoom`/`joinRoom` with an ack callback.
+- `session.js` — thin localStorage wrapper (`saveSession`/`loadSession`/
+  `clearSession`) for the single key holding `{ code, playerId, token }`.
+  The only client-side persistence in the app, scoped entirely to
+  supporting the 20-second grace window.
+- `App.jsx` — top-level: on every socket `connect` event (first connect
+  *and* any underlying socket.io auto-reconnect), checks `loadSession()`
+  and, if present, immediately emits `rejoinRoom` (a brief
+  "Reconnecting..." screen covers this attempt). If there's no saved
+  session, or the rejoin is rejected (grace window already expired, or the
+  player was already `left`/`bankrupt`) → `clearSession()` and fall
+  through to `Lobby`. On `disconnect`, it does *not* reset to the lobby —
+  it just waits, since socket.io will keep retrying the connection on its
+  own and `handleConnect` will attempt the rejoin if that succeeds within
+  the window. Holds no derived game state of its own — `myId` is the
+  stable `playerId` returned by the server, never `socket.id`.
+- `components/Lobby.jsx` — create-room / join-room form. On a successful
+  ack, hands the full `{ code, playerId, token }` up to `App`, which saves
+  it via `saveSession` before entering the game screen.
 - `components/Board.jsx` — `getGridPos(i)` maps each of the 32 tile indices
   onto a 9×9 CSS grid perimeter (tiles 0/8/16/24 are the four corners).
   Purely presentational: reads `board`, `ownership`, `players`,
@@ -209,18 +255,22 @@ the next remaining active player automatically becomes host.
   purely for display — the server enforces the actual cutoff regardless of
   what the client shows or does), dice/card display, roll/buy/decline
   /build/end-turn buttons (each gated on `isMyTurn` and `pendingAction`), a
-  "Leave" button (emits `leaveRoom`, then resets local state), player list
-  with balances/badges (including a "left/kicked" badge for anyone removed
-  mid-game), and the log feed. Every interactive control just emits a
-  socket event; it never mutates local state directly.
+  "Leave" button (emits `leaveRoom`, clears the saved session, then resets
+  local state), player list with balances/badges — a permanent
+  "left/kicked" badge for anyone fully removed, and a separate transient
+  "reconnecting..." badge for `connected: false && !left` (i.e. someone
+  else's disconnect grace window currently ticking) — and the log feed.
+  Every interactive control just emits a socket event; it never mutates
+  local state directly.
 
 ## 4. Wire protocol (Socket.io events)
 
 **Client → Server**
 | Event | Payload | Notes |
 |---|---|---|
-| `createRoom` | `{ name }` | ack: `{ ok, code, playerId }` or `{ error }` |
-| `joinRoom` | `{ code, name }` | ack: `{ ok, code, playerId }` or `{ error }`; rejects if started/full |
+| `createRoom` | `{ name }` | ack: `{ ok, code, playerId, token }` or `{ error }` |
+| `joinRoom` | `{ code, name }` | ack: `{ ok, code, playerId, token }` or `{ error }`; rejects if started/full |
+| `rejoinRoom` | `{ code, playerId, token }` | ack: `{ ok, code, playerId, token }` or `{ error }`; only succeeds within the 20s disconnect grace window |
 | `startGame` | — | host-only, requires ≥2 players |
 | `rollDice` | — | current-player-only; rejected if `pendingAction` set |
 | `buyProperty` | — | resolves `pendingAction: awaitBuy` |
@@ -262,20 +312,22 @@ grows much larger or tick rate increases.
 - **Decks reshuffle on exhaustion**, not after every draw (cards drawn don't
   recirculate until the deck runs out).
 - **No persistence layer** — rooms are pure in-memory JS objects.
-- **Player identity ≠ socket id** — `playerId` (nanoid) is the durable
-  identity used throughout `Room`; `socket.id` is just whichever transport
-  happens to be carrying that player right now. Kept purely so the server
-  never has to deal with `socket.id` directly in game logic — there is no
-  reconnect mechanism built on top of it (see next point).
-- **No reconnect, no grace period — disconnect forfeits the seat,
-  immediately, every time.** This is a deliberate simplification: an
-  earlier pass tried holding a disconnected player's seat open
-  indefinitely so they could rejoin, which added meaningful complexity
-  (secret tokens, a `connected` flag, client-side session persistence) to
-  solve a problem — recovering gracefully from a dropped connection — that
-  isn't actually a current requirement. A momentary wifi blip and a
-  deliberate quit now look identical to the server (both end in
-  `kickPlayer`); only the log message differs.
+- **Player identity ≠ socket id** — `playerId` (public) + `token` (private,
+  never broadcast) are the durable identity; `socket.id` is just whichever
+  transport happens to be carrying that player right now. This is what
+  makes the 20-second grace window possible without touching any
+  game-state shape on reconnect.
+- **A bounded grace window, not unbounded hold *or* zero tolerance.** Two
+  earlier designs were tried and explicitly walked back: holding a
+  disconnected seat open *indefinitely* (Pass 2 — too complex a payoff for
+  an open-ended promise), and kicking on *any* disconnect with *no*
+  tolerance at all (Pass 3 — too harsh, a 2-second wifi blip ended your
+  game same as quitting on purpose). 20 seconds is a deliberately small,
+  fixed compromise: enough to survive a refresh or a brief network hiccup,
+  not enough to let someone stall a game by going AFK.
+- **Manual leave bypasses the grace window on purpose.** `leaveRoom` kicks
+  immediately — the grace window exists to protect against *involuntary*
+  disconnects, not to give a deliberate exit a 20-second undo window.
 - **A hard 4-minute clock per turn, enforced server-side.** No player,
   connected or not, can stall the game past 4 minutes on their own turn —
   the timer kicks them exactly like a disconnect would. This bounds how
@@ -290,13 +342,16 @@ grows much larger or tick rate increases.
 - Mortgaging properties
 - Auctions when a player declines to buy
 - Persistent rooms (everything is wiped on server restart)
-- No tolerance for brief blips: a 2-second wifi hiccup currently ends a
-  player's game exactly like quitting on purpose would. If that turns out
-  to be too harsh in practice, the fix would be a short server-side grace
-  window before calling `kickPlayer` on disconnect (not before — that was
-  tried and explicitly walked back, see progress.md Pass 3) rather than
-  reviving full reconnect/session support.
+- The grace window is a single fixed 20s for everyone, with no visibility
+  into it for other players beyond a generic "reconnecting..." badge —
+  there's no shared countdown showing exactly how much of the window is
+  left, the way the turn timer has one.
 - No UI affordance for *why* a player saw themselves dumped back to the
-  lobby (ran out of time vs. got disconnected vs. someone else ended the
-  game) beyond what's in the shared log — there's no personal "you were
-  kicked because X" toast on the client that triggered it.
+  lobby (ran out of time vs. grace window expired vs. someone else ended
+  the game) beyond what's in the shared log — there's no personal "you
+  were kicked because X" toast on the client that triggered it.
+- No reconnect support pre-start (in the lobby): a disconnect before the
+  game begins still removes the player outright, same as it always has —
+  the grace window only applies once `started` is true. Probably fine
+  (rejoining a lobby is just `joinRoom` again with the same code), but
+  worth naming as an intentional asymmetry.

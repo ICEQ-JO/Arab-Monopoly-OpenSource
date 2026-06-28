@@ -6,6 +6,7 @@ const STARTING_BALANCE = 1500;
 const HOLDING_RELEASE_RENT = 50;
 const MAX_HOLDING_TURNS = 3;
 const TURN_TIME_LIMIT_MS = 4 * 60 * 1000;
+const DISCONNECT_GRACE_MS = 20 * 1000;
 
 const PLAYER_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6", "#1abc9c"];
 
@@ -13,7 +14,7 @@ export class Room {
   constructor(code, hostId) {
     this.code = code;
     this.hostId = hostId;
-    this.players = []; // {id, name, color, balance, position, inHolding, holdingTurns, holdingFreeCard, bankrupt, left, properties: [tileId]}
+    this.players = []; // {id, token, name, color, connected, balance, position, inHolding, holdingTurns, holdingFreeCard, bankrupt, left, properties: [tileId]}
     this.ownership = {}; // tileId -> { ownerId, houses }
     this.started = false;
     this.turnIndex = 0;
@@ -28,13 +29,16 @@ export class Room {
     this.notify = null; // set by the server to broadcast state after an autonomous timeout kick
   }
 
-  addPlayer(id, name) {
+  addPlayer(id, name, token) {
     if (this.players.find((p) => p.id === id)) return;
     const color = PLAYER_COLORS[this.players.length % PLAYER_COLORS.length];
     this.players.push({
       id,
+      token,
       name,
       color,
+      connected: true,
+      graceTimer: null,
       balance: STARTING_BALANCE,
       position: 0,
       inHolding: false,
@@ -44,6 +48,35 @@ export class Room {
       left: false,
       properties: [],
     });
+  }
+
+  verifyToken(id, token) {
+    const player = this.playerById(id);
+    return !!player && player.token === token;
+  }
+
+  // Disconnects (not manual leaves) get a short window to come back before being kicked.
+  startGracePeriod(playerId) {
+    const player = this.playerById(playerId);
+    if (!player || player.left || player.bankrupt) return;
+    player.connected = false;
+    this.pushLog(`${player.name} disconnected — they have ${DISCONNECT_GRACE_MS / 1000}s to reconnect before losing their seat.`);
+    player.graceTimer = setTimeout(() => {
+      player.graceTimer = null;
+      this.kickPlayer(playerId, "didn't reconnect in time and was removed from the game");
+      this.notify?.();
+    }, DISCONNECT_GRACE_MS);
+  }
+
+  cancelGracePeriod(playerId) {
+    const player = this.playerById(playerId);
+    if (!player) return;
+    if (player.graceTimer) {
+      clearTimeout(player.graceTimer);
+      player.graceTimer = null;
+    }
+    player.connected = true;
+    this.pushLog(`${player.name} reconnected.`);
   }
 
   // Used only pre-start: a lobby seat for a game that hasn't begun isn't worth holding.
@@ -62,6 +95,10 @@ export class Room {
   kickPlayer(playerId, reasonLabel) {
     const player = this.playerById(playerId);
     if (!player || player.left || player.bankrupt) return;
+    if (player.graceTimer) {
+      clearTimeout(player.graceTimer);
+      player.graceTimer = null;
+    }
     const wasCurrent = this.started && this.currentPlayer()?.id === playerId;
     for (const tileId of player.properties) {
       delete this.ownership[tileId];
@@ -400,7 +437,7 @@ export class Room {
       hostId: this.hostId,
       started: this.started,
       turnIndex: this.turnIndex,
-      players: this.players,
+      players: this.players.map(({ token, graceTimer, ...pub }) => pub),
       ownership: this.ownership,
       log: this.log.slice(0, 20),
       lastRoll: this.lastRoll,

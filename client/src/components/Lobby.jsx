@@ -13,7 +13,7 @@ export default function Lobby({ onJoined }) {
     socket.emit("createRoom", { name: name.trim() }, (res) => {
       setBusy(false);
       if (res?.error) return setError(res.error);
-      onJoined(res.playerId);
+      onJoined(res);
     });
   }
 
@@ -24,7 +24,7 @@ export default function Lobby({ onJoined }) {
     socket.emit("joinRoom", { code: code.trim(), name: name.trim() }, (res) => {
       setBusy(false);
       if (res?.error) return setError(res.error);
-      onJoined(res.playerId);
+      onJoined(res);
     });
   }
 
