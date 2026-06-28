@@ -9,6 +9,84 @@ in the same pass.
 
 ---
 
+## Pass 10 — 2026-06-29 — Fix: extra rolls per turn + missing three-doubles rule
+
+**Goal:** the user asked me to verify whether a player could roll more
+than once per turn beyond the normal doubles/jail rules, ahead of a
+friend playtest. Checking confirmed a real bug: `rollDice` had no guard
+against rolling again after a non-doubles roll, and the client showed the
+"Roll dice" button unconditionally whenever it wasn't blocked by a pending
+action. Separately, the classic "three doubles in a row sends you to the
+Holding Pen" rule had never been implemented at all — only the unrelated
+*escape-the-Holding-Pen-via-doubles* mechanic existed, which happens to
+also involve the word "doubles."
+
+**What was done:**
+- Added two pieces of room-level state, both reset every turn (in
+  `start()` and `endTurn()`): `canRollAgain` (boolean) and
+  `consecutiveDoubles` (counter).
+- `rollDice` now rejects outright with `"You already rolled this turn"`
+  if `canRollAgain` is `false`. After a roll, `canRollAgain` is set to
+  `rolledDoubles && !wasInHolding` — true only for a free-play double, not
+  for doubles that just escaped the Holding Pen (different mechanic, no
+  bonus roll for it).
+- `consecutiveDoubles` increments on each free-play double and resets to
+  0 on any non-double. Hitting 3 calls `sendToHolding(player)` directly
+  and returns *before* `movePlayer` ever runs for that roll — the player
+  doesn't move by that third roll's distance or resolve whatever tile it
+  would have landed on, matching the real rule that three-in-a-row catches
+  you immediately rather than after one more move.
+- Exposed `canRollAgain` in `toState()` (and in `toSnapshot()`
+  /`fromSnapshot()` from Pass 9, so it survives a restart correctly rather
+  than silently resetting).
+- Client: `Hud.jsx`'s "Roll dice" button is now only rendered when
+  `state.canRollAgain` is true; "End turn" is unaffected (you could always
+  end your turn whenever there was no pending action, that part wasn't
+  buggy).
+- Verified server-side with a direct `Room` unit test (not committed) that
+  deterministically controls dice via a `Math.random` monkey-patch: a
+  non-doubles roll correctly blocks a second roll attempt; a doubles roll
+  correctly grants exactly one bonus roll; three consecutive doubles
+  correctly teleports to the Holding Pen instead of moving by the third
+  roll's distance, with no bonus roll and the next roll attempt rejected.
+  Two of my own test assertions were wrong on the first pass (expected the
+  3rd-double case to leave position unchanged, when `sendToHolding`
+  correctly teleports to tile 10; and a copy-paste edit accidentally
+  dropped one of the three required rolls from the sequence, so the rule
+  didn't trigger) — both were test bugs, not code bugs, found and fixed
+  before relying on the result.
+
+**Why these calls:**
+- A single boolean (`canRollAgain`) rather than, say, counting rolls per
+  turn: the actual rule isn't "at most N rolls" (doubles can chain
+  multiple bonus rolls), it's "you may roll again only if your last roll
+  earned it" — a flag that's recomputed after every roll is the direct
+  expression of that rule, not an approximation of it.
+- Doubles-to-escape-holding excluded from both the bonus-roll grant and
+  the three-in-a-row counter: conflating the two "doubles" concepts would
+  let a player stuck in the Holding Pen chain free rolls just by getting
+  lucky on the escape roll, which has nothing to do with why the
+  three-in-a-row rule exists (discouraging reckless free-play movement).
+- Found via an explicit user request to verify behavior before a real
+  playtest, not discovered by code review — worth noting that this bug
+  had been present since Pass 1 and gone unnoticed through nine passes of
+  unit testing, because every prior unit test happened to only roll once
+  per turn in its scenarios. A good reminder that unit tests only catch
+  what they specifically exercise.
+
+**Known gaps left for later:** none new from this pass — this was a
+correctness fix to existing intended behavior, not a new feature with its
+own open questions.
+
+**State at end of pass:** server-side logic verified via a direct `Room`
+unit test with deterministic dice (temporary file, deleted before
+committing); JSX change verified via an esbuild bundle check. No dev
+server was needed. `systemDesign.md` updated in place — core flow
+description, a new "Roll gating" explanation, `toState()` shape, and new
+invariants for the roll-gating and three-doubles behavior.
+
+---
+
 ## Pass 9 — 2026-06-28 — Persistent rooms across server restarts
 
 **Goal:** the last item from the original feature gap list — a server

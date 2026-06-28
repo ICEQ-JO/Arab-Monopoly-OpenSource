@@ -81,9 +81,11 @@ export default function Hud({ state, myId, onLeave }) {
 
           {isMyTurn && !pending && (
             <div className="action-row">
-              <button className="primary" onClick={() => socket.emit("rollDice")}>
-                Roll dice
-              </button>
+              {state.canRollAgain && (
+                <button className="primary" onClick={() => socket.emit("rollDice")}>
+                  Roll dice
+                </button>
+              )}
               <button onClick={() => socket.emit("endTurn")}>End turn</button>
             </div>
           )}

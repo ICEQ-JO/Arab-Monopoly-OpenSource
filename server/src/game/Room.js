@@ -30,6 +30,8 @@ export class Room {
     this.notify = null; // set by the server to broadcast state after an autonomous timeout kick
     this.trades = []; // { id, fromId, toId, offerProperties, offerMoney, requestProperties, requestMoney }
     this.auctions = []; // { id, tileId, highestBid, highestBidderId, passedIds }
+    this.canRollAgain = true; // false once the current player has used their roll for this turn
+    this.consecutiveDoubles = 0; // resets each turn; 3 in a row sends the roller to the Holding Pen
   }
 
   addPlayer(id, name, token) {
@@ -151,6 +153,8 @@ export class Room {
 
   start() {
     this.started = true;
+    this.canRollAgain = true;
+    this.consecutiveDoubles = 0;
     this.pushLog("Game started!");
     this.startTurnTimer();
   }
@@ -176,14 +180,17 @@ export class Room {
     const player = this.currentPlayer();
     if (!player || player.id !== playerId || player.bankrupt || player.left) return { error: "Not your turn" };
     if (this.pendingAction) return { error: "Resolve the current action first" };
+    if (!this.canRollAgain) return { error: "You already rolled this turn" };
 
+    const wasInHolding = player.inHolding;
     const d1 = 1 + Math.floor(Math.random() * 6);
     const d2 = 1 + Math.floor(Math.random() * 6);
     this.lastRoll = [d1, d2];
+    const rolledDoubles = d1 === d2;
 
-    if (player.inHolding) {
+    if (wasInHolding) {
       player.holdingTurns += 1;
-      if (d1 === d2) {
+      if (rolledDoubles) {
         player.inHolding = false;
         player.holdingTurns = 0;
         this.pushLog(`${player.name} rolled doubles and left the Holding Pen.`);
@@ -194,21 +201,36 @@ export class Room {
         this.pushLog(`${player.name} paid ${HOLDING_RELEASE_RENT} to leave the Holding Pen.`);
       } else {
         this.pushLog(`${player.name} is stuck in the Holding Pen (${player.holdingTurns}/${MAX_HOLDING_TURNS}).`);
+        this.canRollAgain = false;
         this.endTurn();
         return { rolled: [d1, d2], stayedInHolding: true };
       }
     }
 
+    // Doubles rolled to escape the Holding Pen don't count toward "three in a row" --
+    // that rule is about free play, not the unrelated escape mechanic above.
+    if (rolledDoubles && !wasInHolding) {
+      this.consecutiveDoubles += 1;
+    } else if (!rolledDoubles) {
+      this.consecutiveDoubles = 0;
+    }
+
+    if (this.consecutiveDoubles >= 3) {
+      this.pushLog(`${player.name} rolled doubles three times in a row and was sent straight to the Holding Pen!`);
+      this.consecutiveDoubles = 0;
+      this.canRollAgain = false;
+      this.sendToHolding(player);
+      return { rolled: [d1, d2], doubles: true, sentToHoldingForSpeeding: true };
+    }
+
     const steps = d1 + d2;
     this.movePlayer(player, steps);
 
-    if (d1 === d2 && !player.inHolding) {
-      // doubles grant another roll, handled client-side by not auto-ending turn
-    } else {
-      this.afterMoveResolved = true;
-    }
+    // A bonus roll is earned only by rolling doubles in free play (not escaping the
+    // Holding Pen, and not the third-in-a-row case already handled above).
+    this.canRollAgain = rolledDoubles && !wasInHolding;
 
-    return { rolled: [d1, d2], doubles: d1 === d2 };
+    return { rolled: [d1, d2], doubles: rolledDoubles };
   }
 
   movePlayer(player, steps) {
@@ -697,6 +719,8 @@ export class Room {
     } while (this.players[this.turnIndex].bankrupt || this.players[this.turnIndex].left);
     this.lastRoll = null;
     this.lastCard = null;
+    this.canRollAgain = true;
+    this.consecutiveDoubles = 0;
     this.startTurnTimer();
   }
 
@@ -720,6 +744,7 @@ export class Room {
       turnDeadline: this.turnDeadline,
       trades: this.trades,
       auctions: this.auctions,
+      canRollAgain: this.canRollAgain,
       board: BOARD,
     };
   }
@@ -744,6 +769,8 @@ export class Room {
       winnerId: this.winnerId,
       trades: this.trades,
       auctions: this.auctions,
+      canRollAgain: this.canRollAgain,
+      consecutiveDoubles: this.consecutiveDoubles,
     };
   }
 
@@ -770,6 +797,8 @@ export class Room {
     room.winnerId = snapshot.winnerId;
     room.trades = snapshot.trades || [];
     room.auctions = snapshot.auctions || [];
+    room.canRollAgain = snapshot.canRollAgain ?? true;
+    room.consecutiveDoubles = snapshot.consecutiveDoubles || 0;
 
     for (const player of room.players) {
       if (!player.connected && !player.left && !player.bankrupt) {

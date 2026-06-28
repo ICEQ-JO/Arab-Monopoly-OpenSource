@@ -87,7 +87,9 @@ One `Room` instance per active game (keyed by room code).
 **Core flow:**
 ```
 rollDice(playerId)
+  -> rejects if !canRollAgain (already used this turn's roll -- see below)
   -> handles Holding Pen logic (doubles to escape / 3-turn cap / pay to leave)
+  -> tracks consecutiveDoubles; 3 in a row -> sendToHolding(player), skip the move entirely
   -> movePlayer(player, steps)
        -> wraps position around the 32 tiles, pays 200 on passing Start
        -> resolveTile(player)
@@ -97,7 +99,28 @@ rollDice(playerId)
                  surprise/treasure        -> drawCard -> applyCardEffect
                  go_to_holding            -> sendToHolding
             -> checkBankruptcy(player)
+  -> sets canRollAgain = rolledDoubles && !wasInHolding (a bonus roll, but not for
+     doubles that just escaped the Holding Pen, and not on the 3rd-in-a-row case
+     above, which already returned early)
 ```
+
+**Roll gating (`canRollAgain`) and the three-doubles rule:** the original
+implementation let a player call `rollDice` repeatedly within their own
+turn with no restriction beyond `pendingAction` being clear — there was no
+check on whether their *previous* roll had actually earned them another
+one. Fixed by tracking two pieces of room-level state, both reset to
+`true`/`0` at the start of every turn (`start()` and `endTurn()`):
+- `canRollAgain` — `rollDice` now rejects outright (`"You already rolled
+  this turn"`) if this is `false`. It's only ever set back to `true` by
+  rolling doubles in free play (`rolledDoubles && !wasInHolding`) — rolling
+  doubles *to escape* the Holding Pen does **not** earn a bonus roll
+  (different mechanic, same word "doubles").
+- `consecutiveDoubles` — increments on each free-play double, resets to 0
+  on any non-double. Hitting 3 sends the player straight to the Holding
+  Pen via `sendToHolding` *before* `movePlayer` ever runs for that roll —
+  they don't move by that third roll's distance or resolve whatever tile
+  it would have landed on, matching the real rule that three-in-a-row
+  ends your move immediately, not just your turn.
 - `calcRent` handles the three rent shapes: flat property rent (with
   monopoly doubling when unimproved and the owner holds the whole color
   group), transit rent (scales with how many transit tiles the owner holds),
@@ -496,6 +519,7 @@ the next remaining active player automatically becomes host.
   ownership: {...},
   log: [...up to 20],
   lastRoll: [d1, d2] | null,
+  canRollAgain: boolean,  // client only shows "Roll dice" when true
   lastCard: { deck, text } | null,
   pendingAction: {...} | null,
   turnDeadline: <epoch ms> | null,  // for the client's countdown display only
@@ -580,6 +604,23 @@ grows much larger or tick rate increases.
   your own properties for cash is a financial decision, not a turn action
   — there's no reason to make a player wait for their turn to mortgage
   something to cover a rent payment that's due right now.
+- **A turn's roll is one-shot unless doubles earn another.** `canRollAgain`
+  is the single source of truth `rollDice` checks before doing anything
+  else — there's no separate "have I rolled yet this turn" flag to keep in
+  sync, just this one boolean that's reset every turn and flipped by the
+  outcome of each roll.
+- **Doubles to escape the Holding Pen don't count toward the three
+  -in-a-row rule, and don't earn a bonus roll.** It's the same word
+  ("doubles") describing two different mechanics — escaping confinement
+  vs. free-play momentum — and conflating them would mean a player stuck
+  in the Holding Pen could chain bonus rolls just by getting lucky on the
+  escape roll, which isn't how the rule is meant to work.
+- **Three doubles in a row skips the move, not just the rest of the
+  turn.** `sendToHolding` is called instead of `movePlayer` for that third
+  roll — the player never resolves whatever tile that roll's distance
+  would have landed them on (no rent, no card draw, no passing-Start
+  bonus). This matches the convention that speeding catches you
+  immediately, not after one more move.
 - **Declining a purchase always triggers an auction — there's no "just
   walk away" option.** Once a property is up for auction, the only ways
   it resolves are someone winning it or every active player passing (bank
