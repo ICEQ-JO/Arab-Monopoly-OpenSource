@@ -121,6 +121,7 @@
   align-items: center;
   justify-content: center;
   font-size: 9px;
+  font-weight: 700;
   color: #fff;
 }
 
@@ -294,6 +295,24 @@
   width: 100%;
   text-align: left;
   margin-top: 6px;
+}
+
+.build-row {
+  align-items: center;
+  margin-top: 6px;
+  flex-wrap: nowrap;
+}
+
+.build-row-name {
+  flex: 1;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.build-row .build-btn {
+  width: auto;
+  margin-top: 0;
+  flex-shrink: 0;
 }
 
 .winner-banner {

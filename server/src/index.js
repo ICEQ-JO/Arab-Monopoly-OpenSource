@@ -125,6 +125,27 @@ io.on("connection", (socket) => {
     broadcastState(room.code);
   });
 
+  socket.on("sellHouse", ({ tileId }) => {
+    const room = getRoom(socket);
+    if (!room) return;
+    room.sellHouse(getPlayerId(socket), tileId);
+    broadcastState(room.code);
+  });
+
+  socket.on("mortgageProperty", ({ tileId }) => {
+    const room = getRoom(socket);
+    if (!room) return;
+    room.mortgageProperty(getPlayerId(socket), tileId);
+    broadcastState(room.code);
+  });
+
+  socket.on("unmortgageProperty", ({ tileId }) => {
+    const room = getRoom(socket);
+    if (!room) return;
+    room.unmortgageProperty(getPlayerId(socket), tileId);
+    broadcastState(room.code);
+  });
+
   socket.on("proposeTrade", (payload) => {
     const room = getRoom(socket);
     if (!room) return;

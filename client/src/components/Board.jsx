@@ -38,8 +38,8 @@ export default function Board({ board, ownership, players, pendingAction }) {
             )}
             {"price" in tile && <div className="tile-price">${tile.price}</div>}
             {owned && (
-              <div className="tile-owner" style={{ background: ownerColor }}>
-                {owned.houses > 0 && <span className="house-count">{owned.houses === 5 ? "\u{1F3E8}" : owned.houses}</span>}
+              <div className={`tile-owner ${owned.mortgaged ? "tile-owner-mortgaged" : ""}`} style={{ background: ownerColor }}>
+                {owned.mortgaged ? "M" : owned.houses > 0 ? <span className="house-count">{owned.houses === 5 ? "\u{1F3E8}" : owned.houses}</span> : null}
               </div>
             )}
             <div className="tile-tokens">

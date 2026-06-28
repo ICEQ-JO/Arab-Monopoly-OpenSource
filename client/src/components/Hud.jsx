@@ -33,6 +33,17 @@ export default function Hud({ state, myId, onLeave }) {
     const owned = state.ownership[t.id];
     return t.type === "property" && owned?.ownerId === myId;
   });
+  const isOwnable = (t) => t.type === "property" || t.type === "transit" || t.type === "utility";
+  const myMortgageable = board.filter((t) => {
+    const owned = state.ownership[t.id];
+    return isOwnable(t) && owned?.ownerId === myId && !owned.houses && !owned.mortgaged;
+  });
+  const myMortgaged = board.filter((t) => {
+    const owned = state.ownership[t.id];
+    return isOwnable(t) && owned?.ownerId === myId && owned.mortgaged;
+  });
+  const mortgageValue = (t) => Math.floor(t.price / 2);
+  const unmortgageCost = (t) => mortgageValue(t) + Math.ceil(mortgageValue(t) * 0.1);
 
   return (
     <div className="hud">
@@ -92,11 +103,46 @@ export default function Hud({ state, myId, onLeave }) {
 
           {isMyTurn && !pending && myOwnedBuildable.length > 0 && (
             <details className="build-panel">
-              <summary>Build houses</summary>
-              {myOwnedBuildable.map((t) => (
-                <button key={t.id} className="build-btn" onClick={() => socket.emit("buyHouse", { tileId: t.id })}>
-                  {t.name} (+${t.housePrice})
-                </button>
+              <summary>Build / sell houses</summary>
+              {myOwnedBuildable.map((t) => {
+                const owned = state.ownership[t.id];
+                return (
+                  <div key={t.id} className="action-row build-row">
+                    <span className="build-row-name">
+                      {t.name} {owned.houses > 0 && `(level ${owned.houses})`}
+                    </span>
+                    <button className="build-btn" onClick={() => socket.emit("buyHouse", { tileId: t.id })}>
+                      Build (+${t.housePrice})
+                    </button>
+                    {owned.houses > 0 && (
+                      <button className="build-btn" onClick={() => socket.emit("sellHouse", { tileId: t.id })}>
+                        Sell (+${Math.floor(t.housePrice / 2)})
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </details>
+          )}
+
+          {(myMortgageable.length > 0 || myMortgaged.length > 0) && (
+            <details className="build-panel">
+              <summary>Mortgage</summary>
+              {myMortgageable.map((t) => (
+                <div key={t.id} className="action-row build-row">
+                  <span className="build-row-name">{t.name}</span>
+                  <button className="build-btn" onClick={() => socket.emit("mortgageProperty", { tileId: t.id })}>
+                    Mortgage (+${mortgageValue(t)})
+                  </button>
+                </div>
+              ))}
+              {myMortgaged.map((t) => (
+                <div key={t.id} className="action-row build-row">
+                  <span className="build-row-name">{t.name} (mortgaged)</span>
+                  <button className="build-btn" onClick={() => socket.emit("unmortgageProperty", { tileId: t.id })}>
+                    Pay off (-${unmortgageCost(t)})
+                  </button>
+                </div>
               ))}
             </details>
           )}

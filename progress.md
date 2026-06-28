@@ -9,6 +9,89 @@ in the same pass.
 
 ---
 
+## Pass 6 — 2026-06-28 — Selling houses + mortgaging properties
+
+**Goal:** close the gap flagged right after trading shipped — once a
+property had any houses on it, there was no way back down (no
+sell-house action existed), which also meant it was permanently locked
+out of trading. Add selling houses and mortgaging so players have real
+cash-management options instead of only ever spending money forward.
+
+**What was done:**
+- Added `Room.sellHouse(playerId, tileId)`: the reverse of `buyHouse` —
+  reduces `houses` by one, refunds half the tile's `housePrice` (rounded
+  down). Deliberately **no full-color-group requirement to sell**, unlike
+  building — you can liquidate down even if you don't hold the rest of the
+  group.
+- Added `Room.mortgageProperty`/`unmortgageProperty`: mortgaging an
+  owned, undeveloped, not-already-mortgaged tile pays out half its
+  `price` and sets `ownership[tileId].mortgaged = true`; unmortgaging
+  reverses it for `unmortgageCost()` — the mortgage value plus 10%
+  interest, rounded up. Added a new `MORTGAGE_INTEREST_RATE` constant.
+- Wired mortgage status into the three places that needed to respect it:
+  `resolveTile` now waives rent entirely (logs it, doesn't charge) when
+  the landed-on tile is mortgaged; `buyHouse` now refuses to build on a
+  mortgaged property; `isTradeable` now excludes mortgaged tiles from
+  trading, alongside the existing developed-property exclusion from Pass 5.
+- `index.js`: added `sellHouse`/`mortgageProperty`/`unmortgageProperty`
+  socket events, same thin-wrapper-plus-broadcast pattern as everything
+  else.
+- Client: extended the existing "Build houses" panel in `Hud.jsx` into a
+  build/sell panel — each developable property now shows both a Build and
+  (once it has houses) a Sell button with its refund amount. Added a
+  separate Mortgage panel listing mortgageable properties (with payout)
+  and already-mortgaged ones (with payoff cost) — **not gated on
+  `isMyTurn`**, unlike build/sell, since managing your own finances isn't
+  a turn action. `Board.jsx` now shows an "M" badge in place of the house
+  count on a mortgaged tile.
+- Verified server-side with a direct `Room` unit test (not committed):
+  build→sell round-trip costs exactly half the house price; selling with
+  nothing built is rejected; building on a mortgaged tile is rejected;
+  rent is correctly waived landing on a mortgaged tile; the unmortgage
+  cost matches value + 10% interest exactly; a mortgaged property is
+  correctly excluded from `isTradeable`. All passed.
+
+**Why these calls:**
+- No full-group requirement to sell houses: building requires the full
+  group because that's what unlocks the ability in the first place: but
+  once you've built, there's no reason cashing back out should require
+  still owning the rest of the group (you might have lost a sibling
+  property to bankruptcy or a trade since building). Selling is strictly
+  a "give me money back" action with no group-coordination concern.
+- Build/sell kept turn-gated (matching the pre-existing `buyHouse`
+  convention) but mortgage/unmortgage/sell deliberately **not**
+  turn-gated: the actual motivating scenario for mortgaging is needing
+  cash *right now* to cover a rent payment or avoid bankruptcy, which can
+  happen on anyone's turn, not just your own. Gating it the same way as
+  build would defeat the point.
+- Waive rent entirely rather than reduce it on a mortgaged tile: a partial
+  -rent rule is real complexity (what fraction, does it interact with the
+  monopoly-doubling rule) for a wrinkle nobody asked for; "mortgaged
+  property earns nothing until paid off" is the standard convention and
+  was the simplest correct rule to implement.
+- Excluding mortgaged tiles from trading (on top of the existing
+  developed-tile exclusion): transferring a mortgage's obligation to a new
+  owner is its own small rule set (who owes the interest, when) that
+  wasn't asked for — simplest to require paying it off first, consistent
+  with the same reasoning Pass 5 already applied to houses.
+
+**Known gaps left for later:** still no counter-offer flow for trades, no
+auctions, no persistence; mortgaging is otherwise feature-complete for
+this pass (rent waiver, build-block, trade-block, and interest-bearing
+payoff are all in).
+
+**State at end of pass:** server-side logic verified via a direct `Room`
+unit test (temporary file, deleted before committing); JSX changes
+syntax-checked via `node --check` on the server side (client JSX isn't
+directly checkable by `node`, but no dev server was needed to verify the
+logic this pass touched, which is entirely server-side game rules).
+`systemDesign.md` updated in place — new build/sell/mortgage method
+descriptions, updated `isTradeable` note, wire protocol entries, and new
+invariants/gaps entries (also fixed an accidental duplicate gaps-list
+line from this edit).
+
+---
+
 ## Pass 5 — 2026-06-28 — Player-to-player trading
 
 **Goal:** the next item on the open gap list from earlier passes — let

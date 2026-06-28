@@ -7,6 +7,7 @@ const HOLDING_RELEASE_RENT = 50;
 const MAX_HOLDING_TURNS = 3;
 const TURN_TIME_LIMIT_MS = 4 * 60 * 1000;
 const DISCONNECT_GRACE_MS = 20 * 1000;
+const MORTGAGE_INTEREST_RATE = 0.1;
 
 const PLAYER_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6", "#1abc9c"];
 
@@ -232,9 +233,13 @@ export class Room {
         if (!owned) {
           this.pendingAction = { type: "awaitBuy", tileId: tile.id, playerId: player.id };
         } else if (owned.ownerId !== player.id) {
-          const rent = this.calcRent(tile, owned);
-          this.transferMoney(player.id, owned.ownerId, rent);
-          this.pushLog(`${player.name} paid ${rent} rent to ${this.playerById(owned.ownerId).name} for ${tile.name}.`);
+          if (owned.mortgaged) {
+            this.pushLog(`${player.name} landed on ${tile.name}, but it's mortgaged -- no rent owed.`);
+          } else {
+            const rent = this.calcRent(tile, owned);
+            this.transferMoney(player.id, owned.ownerId, rent);
+            this.pushLog(`${player.name} paid ${rent} rent to ${this.playerById(owned.ownerId).name} for ${tile.name}.`);
+          }
         }
         break;
       }
@@ -386,6 +391,7 @@ export class Room {
     if (!owned || owned.ownerId !== playerId || tile.type !== TILE_TYPES.PROPERTY) {
       return { error: "You do not own this property" };
     }
+    if (owned.mortgaged) return { error: "You can't build on a mortgaged property" };
     const groupTiles = propertiesByGroup(tile.group);
     const ownsAll = groupTiles.every((t) => this.ownership[t.id]?.ownerId === playerId);
     if (!ownsAll) return { error: "You must own the full color group" };
@@ -398,6 +404,58 @@ export class Room {
     return { ok: true };
   }
 
+  sellHouse(playerId, tileId) {
+    const tile = BOARD[tileId];
+    const owned = this.ownership[tileId];
+    if (!owned || owned.ownerId !== playerId || tile.type !== TILE_TYPES.PROPERTY) {
+      return { error: "You do not own this property" };
+    }
+    if (!owned.houses) return { error: "There's nothing built here to sell" };
+    const player = this.playerById(playerId);
+    const refund = Math.floor(tile.housePrice / 2);
+    owned.houses -= 1;
+    player.balance += refund;
+    this.pushLog(`${player.name} sold a house on ${tile.name} for ${refund} coins (now level ${owned.houses}).`);
+    return { ok: true };
+  }
+
+  mortgageProperty(playerId, tileId) {
+    const tile = BOARD[tileId];
+    const owned = this.ownership[tileId];
+    if (!owned || owned.ownerId !== playerId || !tile?.price) {
+      return { error: "You do not own this property" };
+    }
+    if (owned.mortgaged) return { error: "Already mortgaged" };
+    if (owned.houses) return { error: "Sell all houses on this property first" };
+    const player = this.playerById(playerId);
+    const value = Math.floor(tile.price / 2);
+    owned.mortgaged = true;
+    player.balance += value;
+    this.pushLog(`${player.name} mortgaged ${tile.name} for ${value} coins.`);
+    return { ok: true };
+  }
+
+  unmortgageProperty(playerId, tileId) {
+    const tile = BOARD[tileId];
+    const owned = this.ownership[tileId];
+    if (!owned || owned.ownerId !== playerId || !owned.mortgaged) {
+      return { error: "This property isn't mortgaged" };
+    }
+    const player = this.playerById(playerId);
+    const cost = this.unmortgageCost(tileId);
+    if (player.balance < cost) return { error: "Not enough coins" };
+    player.balance -= cost;
+    owned.mortgaged = false;
+    this.pushLog(`${player.name} paid off the mortgage on ${tile.name} for ${cost} coins.`);
+    return { ok: true };
+  }
+
+  unmortgageCost(tileId) {
+    const tile = BOARD[tileId];
+    const value = Math.floor(tile.price / 2);
+    return value + Math.ceil(value * MORTGAGE_INTEREST_RATE);
+  }
+
   transferMoney(fromId, toId, amount) {
     const from = this.playerById(fromId);
     const to = this.playerById(toId);
@@ -405,14 +463,15 @@ export class Room {
     to.balance += amount;
   }
 
-  // A property can only be traded while it's undeveloped -- avoids juggling house
-  // counts across a swap (real rules also require selling houses before trading).
+  // A property can only be traded while it's undeveloped and unmortgaged -- avoids
+  // juggling house counts or mortgage transfer across a swap (real rules also
+  // require selling houses, and often paying off the mortgage, before trading).
   isTradeable(tileId, ownerId) {
     const owned = this.ownership[tileId];
     const tile = BOARD[tileId];
     if (!owned || owned.ownerId !== ownerId || !tile) return false;
     if (tile.type !== TILE_TYPES.PROPERTY && tile.type !== TILE_TYPES.TRANSIT && tile.type !== TILE_TYPES.UTILITY) return false;
-    return !owned.houses;
+    return !owned.houses && !owned.mortgaged;
   }
 
   proposeTrade(fromId, { toId, offerProperties = [], offerMoney = 0, requestProperties = [], requestMoney = 0 }) {

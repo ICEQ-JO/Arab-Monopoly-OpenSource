@@ -103,8 +103,20 @@ rollDice(playerId)
   group), transit rent (scales with how many transit tiles the owner holds),
   utility rent (multiplier × last dice roll, scales with utilities owned).
 - `buyProperty` / `declineBuy` resolve a pending `awaitBuy`.
-- `buyHouse` enforces full-color-group ownership and a 5-level cap (level 5
-  = hotel) before allowing a purchase.
+- `buyHouse` enforces full-color-group ownership, a 5-level cap (level 5 =
+  hotel), and that the property isn't mortgaged before allowing a purchase.
+- `sellHouse` is the reverse: reduces `houses` by one and refunds half the
+  tile's `housePrice` (rounded down). No full-group requirement to sell
+  (unlike building) — you can sell down even if you no longer own the rest
+  of the group.
+- `mortgageProperty` requires the tile be owned, undeveloped (`houses ===
+  0`), and not already mortgaged; pays out half the tile's `price`
+  (rounded down) and sets `ownership[tileId].mortgaged = true`.
+  `unmortgageProperty` reverses it for `unmortgageCost(tileId)` — the
+  mortgage value plus 10% interest (`MORTGAGE_INTEREST_RATE`), rounded up.
+  While mortgaged: `resolveTile` waives rent entirely (logged, not
+  charged), `buyHouse` refuses to build, and `isTradeable` excludes the
+  tile from trading.
 - `checkBankruptcy` triggers when balance goes negative: releases all of
   that player's properties back to the bank, marks them bankrupt, and calls
   `checkWinner()`.
@@ -171,10 +183,11 @@ in shape but two-sided in content: the proposer's `offerProperties` +
 - `proposeTrade(fromId, {...})` validates both players are active, the
   proposer actually owns every `offerProperties` tile and the target owns
   every `requestProperties` tile, both via `isTradeable()` (must be a
-  property/transit/utility tile, owned by the right player, **and
-  undeveloped** — `!owned.houses` — mirroring the classic rule that you
-  sell houses before trading a property, sidestepping the question of
-  what happens to houses mid-swap), money amounts are non-negative
+  property/transit/utility tile, owned by the right player, **undeveloped**
+  — `!owned.houses` — and **unmortgaged** — `!owned.mortgaged` — mirroring
+  the classic rules that you sell houses and pay off mortgages before
+  trading a property, sidestepping the question of what happens to houses
+  or an outstanding mortgage mid-swap), money amounts are non-negative
   integers, and the trade isn't completely empty. On success it's pushed
   onto `trades[]`, untouched until someone responds.
 - `respondTrade(playerId, tradeId, accept)` — only the trade's `toId` can
@@ -286,14 +299,20 @@ the next remaining active player automatically becomes host.
   onto a 9×9 CSS grid perimeter (tiles 0/8/16/24 are the four corners).
   Purely presentational: reads `board`, `ownership`, `players`,
   `pendingAction` props and renders tiles, ownership color strip, house
-  count, and player tokens.
+  count (or an "M" badge in place of the house count when `owned.mortgaged`
+  is true), and player tokens.
 - `components/Hud.jsx` — turn indicator, a live countdown derived from
   `state.turnDeadline` (`TurnCountdown`, ticks every second client-side
   purely for display — the server enforces the actual cutoff regardless of
   what the client shows or does), dice/card display, roll/buy/decline
   /build/end-turn buttons (each gated on `isMyTurn` and `pendingAction`), a
-  "Leave" button (emits `leaveRoom`, clears the saved session, then resets
-  local state), player list with balances/badges — a permanent
+  build panel that pairs each developable property with both a "Build"
+  and (once it has houses) a "Sell" button, a separate mortgage panel
+  listing mortgageable properties (with their payout) and already-mortgaged
+  ones (with their payoff cost) — **not turn-gated**, since managing your
+  own finances isn't a turn action — a "Leave" button (emits `leaveRoom`,
+  clears the saved session, then resets local state), player list with
+  balances/badges — a permanent
   "left/kicked" badge for anyone fully removed, and a separate transient
   "reconnecting..." badge for `connected: false && !left` (i.e. someone
   else's disconnect grace window currently ticking) — and the log feed.
@@ -322,7 +341,10 @@ the next remaining active player automatically becomes host.
 | `rollDice` | — | current-player-only; rejected if `pendingAction` set |
 | `buyProperty` | — | resolves `pendingAction: awaitBuy` |
 | `declineBuy` | — | resolves `pendingAction: awaitBuy` |
-| `buyHouse` | `{ tileId }` | requires full color-group ownership |
+| `buyHouse` | `{ tileId }` | requires full color-group ownership, property unmortgaged |
+| `sellHouse` | `{ tileId }` | no full-group requirement to sell down |
+| `mortgageProperty` | `{ tileId }` | requires undeveloped, not already mortgaged; not turn-gated |
+| `unmortgageProperty` | `{ tileId }` | requires enough coins for value + 10% interest; not turn-gated |
 | `endTurn` | — | current-player-only; rejected if `pendingAction` set |
 | `leaveRoom` | — | graceful manual exit; forfeits the seat exactly like a disconnect would |
 | `proposeTrade` | `{ toId, offerProperties, offerMoney, requestProperties, requestMoney }` | not turn-gated; either side can be any active player |
@@ -397,12 +419,26 @@ grows much larger or tick rate increases.
   ownership, development, available funds — could have changed; accepting
   re-derives all of it from current state rather than replaying a stale
   snapshot.
-- **Only undeveloped properties can be traded.** Avoids the open question
-  of what happens to houses/hotels mid-swap (and matches the familiar rule
-  that you sell houses before trading a property).
+- **Only undeveloped, unmortgaged properties can be traded.** Avoids the
+  open question of what happens to houses/hotels or an outstanding
+  mortgage mid-swap (and matches the familiar rule that you sell houses
+  and clear mortgages before trading a property).
+- **Selling houses has no full-group requirement, building does.**
+  Deliberately asymmetric: you can always sell down to raise cash even if
+  you no longer hold the rest of the color group (e.g. after trading a
+  sibling property away before this pass's mortgage/sell restrictions
+  existed, or simply choosing to liquidate), but building still requires
+  the full group, same as before this pass.
+- **Mortgage/unmortgage and sell-house are not turn-gated** (build *is*,
+  for consistency with the pre-existing `buyHouse` convention). Managing
+  your own properties for cash is a financial decision, not a turn action
+  — there's no reason to make a player wait for their turn to mortgage
+  something to cover a rent payment that's due right now.
+- **Mortgaging waives rent entirely rather than reducing it.** Simpler
+  than a partial-rent rule, and matches the usual convention that a
+  mortgaged property generates no income for its owner until it's paid off.
 
 ## 6. Known gaps (not yet built)
-- Mortgaging properties
 - Auctions when a player declines to buy
 - Persistent rooms (everything is wiped on server restart)
 - The grace window is a single fixed 20s for everyone, with no visibility
@@ -418,7 +454,6 @@ grows much larger or tick rate increases.
   the grace window only applies once `started` is true. Probably fine
   (rejoining a lobby is just `joinRoom` again with the same code), but
   worth naming as an intentional asymmetry.
-- Auctions when a player declines to buy
 - No counter-offer flow for trades: declining is final — to propose
   something different, the original proposer has to start a brand new
   trade rather than the recipient adjusting and bouncing it back.
