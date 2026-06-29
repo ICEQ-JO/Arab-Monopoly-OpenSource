@@ -30,7 +30,7 @@ export default function Lobby({ onJoined }) {
 
   return (
     <div className="lobby">
-      <h1>Fortune City</h1>
+      <h1>Monoboly عرب</h1>
       <p className="tagline">A property-trading board game for friends, online.</p>
 
       <div className="lobby-card">

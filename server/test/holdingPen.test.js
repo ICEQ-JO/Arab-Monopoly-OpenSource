@@ -25,16 +25,16 @@ test(`stuck in the Holding Pen for non-doubles rolls, forced out on attempt ${MA
   room.turnIndex = 0;
   room.pendingAction = null;
   room.canRollAgain = true;
-  // Non-double, and lands exactly on tile 10 (the Holding Pen tile itself, which
+  // Non-double, and lands exactly on tile 8 (the Holding Pen tile itself, which
   // is just a safe rest stop when landed on directly -- not the go_to_holding
   // tile) from position 0, so the post-escape move can't draw a random card or
   // hit a buy prompt and make the balance assertion below flaky.
-  const final = withDice([[4, 6]], () => room.rollDice("p0"));
+  const final = withDice([[3, 5]], () => room.rollDice("p0"));
 
   assert.equal(final.stayedInHolding, undefined, "this roll actually moves them");
   assert.equal(alice.inHolding, false);
   assert.equal(alice.holdingTurns, 0);
-  assert.equal(alice.position, 10);
+  assert.equal(alice.position, 8);
   assert.equal(alice.balance, startingBalance - HOLDING_RELEASE_RENT, "forced to pay the release fine");
 });
 

@@ -9,7 +9,7 @@ test("a negative balance mid-turn does not trigger immediate bankruptcy or relea
   alice.balance = 5;
   alice.properties = [31];
   room.ownership[31] = { ownerId: "p0", houses: 0 };
-  alice.position = 4; // Toll Gate, a fixed 100-coin tax tile
+  alice.position = 15; // Toll Gate, a fixed 100-coin tax tile
 
   room.resolveTile(alice);
 
@@ -24,11 +24,11 @@ test("mortgaging enough to cover the debt before ending the turn avoids bankrupt
   after(() => cleanup(room));
   const alice = room.players[0];
   alice.balance = -20;
-  alice.properties = [3]; // Foundry Lane, price 60 -> mortgage value 30
-  room.ownership[3] = { ownerId: "p0", houses: 0 };
+  alice.properties = [2]; // Foundry Lane, price 60 -> mortgage value 30
+  room.ownership[2] = { ownerId: "p0", houses: 0 };
   room.lastRoll = [2, 2];
 
-  const mortgageResult = room.mortgageProperty("p0", 3);
+  const mortgageResult = room.mortgageProperty("p0", 2);
   assert.deepEqual(mortgageResult, { ok: true });
   assert.equal(alice.balance, 10);
 
@@ -43,15 +43,15 @@ test("mortgaging not enough to cover the debt still bankrupts at turn end", () =
   after(() => cleanup(room));
   const alice = room.players[0];
   alice.balance = -50;
-  alice.properties = [3];
-  room.ownership[3] = { ownerId: "p0", houses: 0 };
+  alice.properties = [2];
+  room.ownership[2] = { ownerId: "p0", houses: 0 };
   room.lastRoll = [1, 1];
 
-  room.mortgageProperty("p0", 3); // +30, still -20 overall
+  room.mortgageProperty("p0", 2); // +30, still -20 overall
   room.playerEndTurn("p0");
 
   assert.equal(alice.bankrupt, true);
-  assert.equal(room.ownership[3], undefined, "property released back to the bank");
+  assert.equal(room.ownership[2], undefined, "property released back to the bank");
   assert.equal(room.turnIndex, 1, "turn advanced past the now-bankrupt player");
 });
 

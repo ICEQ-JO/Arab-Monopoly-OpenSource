@@ -412,7 +412,7 @@ export class Room {
       this.pushLog(`${player.name} used a free pass to avoid the Holding Pen.`);
       return;
     }
-    player.position = 10; // Holding Pen tile index
+    player.position = 8; // Holding Pen tile index (a board corner, see board.js)
     player.inHolding = true;
     player.holdingTurns = 0;
     this.pushLog(`${player.name} was sent to the Holding Pen.`);

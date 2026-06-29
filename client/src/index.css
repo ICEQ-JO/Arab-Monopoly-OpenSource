@@ -1,5 +1,19 @@
 @import url("https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Arvo:ital,wght@0,400;0,700;1,400&display=swap");
 
+@font-face {
+  font-family: "Marhaban Arabic";
+  src: url("/fonts/MarhabanArabicDEMO-Bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Marhaban Arabic";
+  src: url("/fonts/MarhabanArabicDEMO-BoldOblique.otf") format("opentype");
+  font-weight: 700;
+  font-style: italic;
+}
+
 :root {
   --bg: #ddd2ab;
   --panel: #f1e8cc;

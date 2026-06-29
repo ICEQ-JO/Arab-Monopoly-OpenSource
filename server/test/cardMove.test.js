@@ -28,7 +28,11 @@ test("a movement card defers the move until confirmCardMove is called", () => {
 
   assert.deepEqual(confirmResult, { ok: true });
   assert.equal(alice.position, 4, "moved back 3 from the card tile");
-  assert.equal(room.pendingAction, null);
+  // Tile 4 is an unowned property (Teal Quay) in the post-board-restructure
+  // layout, so resolveTile correctly opens a fresh awaitBuy here -- the thing
+  // actually under test (the card move itself resolving once confirmed) is
+  // done; a new pendingAction for an unrelated decision is expected, not a bug.
+  assert.notEqual(room.pendingAction?.type, "awaitCardMove");
 });
 
 test("confirmCardMove rejects a player who isn't the one the card is pending for", () => {
@@ -47,7 +51,7 @@ test("the deferred bonus-roll calculation completes correctly once confirmed", (
   after(() => cleanup(room));
   const alice = room.players[0];
   forceTopCard(room, "surpriseDeck", "s6");
-  alice.position = 20; // 2 tiles before tile 22, the other Surprise tile (must be an even distance for a double roll)
+  alice.position = 24; // 2 tiles before tile 26, the other Surprise tile (must be an even distance for a double roll)
 
   // Roll doubles (free play) and land on the card tile in the same move.
   const rollResult = withDice([[1, 1]], () => room.rollDice("p0"));
