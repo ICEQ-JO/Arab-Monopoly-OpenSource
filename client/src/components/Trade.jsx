@@ -32,7 +32,7 @@ function TradeSummary({ trade, board, players }) {
 // Shared give/get picker used both for proposing a fresh trade and for countering
 // an incoming one -- "give" is always the acting player's side, "get" is the
 // other party's, regardless of which direction the original offer pointed.
-function TradeForm({ board, ownership, myId, otherId, onSubmit, submitLabel }) {
+function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitLabel }) {
   const [offerIds, setOfferIds] = useState([]);
   const [requestIds, setRequestIds] = useState([]);
   const [offerMoney, setOfferMoney] = useState(0);
@@ -41,6 +41,17 @@ function TradeForm({ board, ownership, myId, otherId, onSubmit, submitLabel }) {
 
   const myTiles = tradeableTiles(board, ownership, myId);
   const theirTiles = otherId ? tradeableTiles(board, ownership, otherId) : [];
+
+  // Sliders are bounded by each side's actual balance -- this also doubles as the
+  // fix for the underlying bug a typed-in amount kept hitting: you simply can't
+  // drag past what someone has, so there's no longer a way to submit an offer the
+  // server would reject as unaffordable. A negative balance (now allowed mid-turn,
+  // see the bankruptcy redesign) clamps the slider's max to 0 rather than going
+  // negative itself -- you can still request money while in debt, just not offer any.
+  const myBalance = players.find((p) => p.id === myId)?.balance ?? 0;
+  const theirBalance = otherId ? players.find((p) => p.id === otherId)?.balance ?? 0 : 0;
+  const maxOffer = Math.max(0, myBalance);
+  const maxRequest = Math.max(0, theirBalance);
 
   function toggle(list, setList, id) {
     setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
@@ -51,9 +62,9 @@ function TradeForm({ board, ownership, myId, otherId, onSubmit, submitLabel }) {
     onSubmit(
       {
         offerProperties: offerIds,
-        offerMoney: Number(offerMoney) || 0,
+        offerMoney: Math.min(Number(offerMoney) || 0, maxOffer),
         requestProperties: requestIds,
-        requestMoney: Number(requestMoney) || 0,
+        requestMoney: Math.min(Number(requestMoney) || 0, maxRequest),
       },
       (res) => {
         if (res?.error) return setError(res.error);
@@ -78,8 +89,14 @@ function TradeForm({ board, ownership, myId, otherId, onSubmit, submitLabel }) {
             </label>
           ))}
           <label className="trade-field">
-            Coins
-            <input type="number" min="0" value={offerMoney} onChange={(e) => setOfferMoney(e.target.value)} />
+            Coins: ${offerMoney} <span className="hint">(max ${maxOffer})</span>
+            <input
+              type="range"
+              min="0"
+              max={maxOffer}
+              value={Math.min(offerMoney, maxOffer)}
+              onChange={(e) => setOfferMoney(Number(e.target.value))}
+            />
           </label>
         </div>
 
@@ -93,8 +110,14 @@ function TradeForm({ board, ownership, myId, otherId, onSubmit, submitLabel }) {
             </label>
           ))}
           <label className="trade-field">
-            Coins
-            <input type="number" min="0" value={requestMoney} onChange={(e) => setRequestMoney(e.target.value)} />
+            Coins: ${requestMoney} <span className="hint">(max ${maxRequest})</span>
+            <input
+              type="range"
+              min="0"
+              max={maxRequest}
+              value={Math.min(requestMoney, maxRequest)}
+              onChange={(e) => setRequestMoney(Number(e.target.value))}
+            />
           </label>
         </div>
       </div>
@@ -136,6 +159,7 @@ function IncomingTradeCard({ trade, board, ownership, players, myId }) {
           <TradeForm
             board={board}
             ownership={ownership}
+            players={players}
             myId={myId}
             otherId={trade.fromId}
             onSubmit={counter}
@@ -201,7 +225,15 @@ export default function Trade({ state, myId }) {
             ))}
           </select>
         </label>
-        <TradeForm board={board} ownership={ownership} myId={myId} otherId={targetId} onSubmit={proposeNew} submitLabel="Send offer" />
+        <TradeForm
+          board={board}
+          ownership={ownership}
+          players={players}
+          myId={myId}
+          otherId={targetId}
+          onSubmit={proposeNew}
+          submitLabel="Send offer"
+        />
       </details>
     </div>
   );

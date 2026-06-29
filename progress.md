@@ -9,6 +9,101 @@ in the same pass.
 
 ---
 
+## Pass 14 — 2026-06-29 — Fix: trade funds check broke under debt; slider/bid UI rework
+
+**Goal:** continue testing Pass 13's deferred-bankruptcy feature. The user
+specifically tried using a trade to recover from debt (player A, in the red,
+asking player B for coins) and the trade was rejected outright. Separately,
+the user asked for two UI changes to make entering coin amounts and
+auction bids faster: a slider bounded by actual balance for trade coins,
+and `+$1`/`+$10`/`+$100` one-click increment buttons for auction bids
+instead of typing an exact amount.
+
+**What was found and fixed:**
+- **`respondTrade`'s funds check broke for any indebted player, even when
+  they weren't the one giving money away.** The check was
+  `fromPlayer.balance < trade.offerMoney || toPlayer.balance <
+  trade.requestMoney`. With `offerMoney = 0` and a negative balance (now a
+  normal, expected state since Pass 13), `-50 < 0` evaluates to `true`,
+  rejecting the trade as unaffordable even though nothing was being
+  offered. This made trading — one of the few legitimate ways to recover
+  from debt before a turn ends — unusable by the exact players who'd need
+  it most. Fixed by only requiring affordability when the amount is
+  actually positive: `(offerMoney > 0 && fromPlayer.balance < offerMoney)
+  || (requestMoney > 0 && toPlayer.balance < requestMoney)`. Verified with
+  a direct test: an indebted player can now request money while offering
+  $0, and is still correctly blocked from offering money they don't have.
+- This is the second bug Pass 13's deferred-bankruptcy redesign has
+  surfaced in code that had simply never been exercised with a negative
+  balance before (the first was the jail-pen/holding-pen timing question
+  in the same session, which turned out not to be a bug — see below).
+
+**What changed (UI):**
+- `Trade.jsx`'s `TradeForm`: replaced the two typed `<input type="number">`
+  coin fields with `<input type="range">` sliders, each capped at `0` to
+  the relevant player's actual balance (`maxOffer` from the acting
+  player's own balance, `maxRequest` from the other party's) — clamped to
+  `0` rather than negative if that balance is currently in debt. This
+  doubles as a second fix for the same underlying problem the funds-check
+  bug came from: a slider physically cannot be dragged past what someone
+  has, so there's no longer a way to even construct an offer the server
+  would reject as unaffordable. Required threading a new `players` prop
+  into every `TradeForm` call site (the "Propose a trade" panel and the
+  inline counter-offer form) so it can look up both balances.
+- `Auction.jsx`'s `AuctionCard`: replaced the typed bid-amount input plus
+  separate "Bid" button with three buttons — `+$1`, `+$10`, `+$100` — each
+  immediately submitting a bid of *the current highest bid plus that
+  amount*, with no confirm step. One click is one bid, intended to keep up
+  with a live bidding war instead of typing an exact number each time.
+
+**What was investigated and found to be correct, not a bug:** the user
+reported the Holding Pen's 3-turn escape cap seeming to take 4 stuck turns
+instead of 3 before releasing a player. A direct `Room` test forcing three
+non-double rolls in a row confirmed the cap fires exactly on the 3rd
+attempt (`holdingTurns` 1 → 2 → 3, forced pay-and-move on reaching 3),
+matching the documented design. The user also asked whether rolling
+doubles to *escape* the Holding Pen should grant a bonus roll afterward;
+confirmed this is an intentional, previously-documented decision (Pass
+10/11) matching real Monopoly rules — escaping confinement and the
+free-play "doubles = roll again" rule are different mechanics, not the
+same rule triggered twice. No code change made; the user confirmed this
+was their own recollection of the rules being off, not a real bug.
+
+**Why these calls:**
+- Fixed the funds check rather than special-casing debt recovery
+  elsewhere: the bug was a straightforward boolean-logic error (comparing
+  balance to an amount without checking the amount was actually positive)
+  that happened to only matter once negative balances became possible —
+  the fix is generic and correct regardless of *why* a balance might be
+  negative, not specific to the bankruptcy feature that exposed it.
+- Slider over input-with-validation for trade coins: a slider that simply
+  can't exceed the cap is strictly better than a number input that could
+  be typed past the cap and then rejected — it eliminates an entire class
+  of "why didn't my trade go through" confusion rather than just
+  explaining the error after the fact.
+- Bid-by-increment over typed-amount-plus-confirm for auctions: matches
+  how the user actually wants to bid in practice (incrementally, reacting
+  to whatever the current high bid is) rather than mentally computing and
+  typing an exact target number under time pressure from the auction
+  countdown.
+
+**Known gaps left for later:** none new from this pass — the funds-check
+fix and the UI changes are both complete; the jail-timing question turned
+out not to need any change.
+
+**State at end of pass:** funds-check fix verified via a direct `Room`
+unit test (temporary file, deleted before committing) covering both the
+previously-broken case (requesting money while in debt) and the still
+-correctly-blocked case (offering money not had). UI changes verified via
+client build (`npm run build`); manually confirmed in the user's live
+playtest session. `systemDesign.md` updated in place — `Trade.jsx`/
+`Auction.jsx` descriptions rewritten for the new slider/increment-button
+UI, the `respondTrade` funds-check description corrected (also fixed a
+stale reference to a `checkBankruptcy` call that Pass 13 had already
+removed from that method).
+
+---
+
 ## Pass 13 — 2026-06-29 — Fix: four more playtest bugs, plus deferred bankruptcy
 
 **Goal:** continue the live playtest from Pass 12. The user found four more

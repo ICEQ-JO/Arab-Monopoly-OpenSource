@@ -311,9 +311,20 @@ like it had stopped working after the first attempt with any given player.
   the trade is dropped with an error rather than partially applied. If it
   passes: ownership flips both directions, each player's `properties[]`
   array is updated, and `transferMoney` runs in both directions (offer
-  money proposer→target, request money target→proposer) — then
-  `checkBankruptcy` runs on both players defensively (shouldn't ever
-  trigger, since funds were just verified, but cheap to call).
+  money proposer→target, request money target→proposer). No bankruptcy
+  check runs afterward — the funds check just below already guarantees
+  neither side goes negative *because of* this trade. The funds check
+  itself only requires affordability for a **non-zero** amount
+  (`offerMoney > 0 && fromPlayer.balance < offerMoney`, same shape for
+  `requestMoney`/`toPlayer`) — an earlier version compared the player's
+  raw balance against the amount unconditionally, which meant a player
+  already in debt (balance negative, allowed since the bankruptcy
+  redesign) got rejected from *any* trade, even one offering $0 and only
+  requesting money, since `-50 < 0` is true regardless of what's actually
+  being given away. Trading is one of the few legitimate ways an indebted
+  player can recover before their own turn ends, so this needed fixing
+  once negative balances became a normal, expected state rather than an
+  impossible one.
 - `cancelTrade(playerId, tradeId)` — only the original proposer (`fromId`)
   can withdraw their own pending offer.
 - `counterTrade(playerId, tradeId, {...})` — only the trade's `toId` can
@@ -595,7 +606,14 @@ the next remaining active player automatically becomes host.
   -offer" badge in `TradeSummary`, purely cosmetic. Like every other
   control, it only emits events (`proposeTrade`/`counterTrade`
   /`respondTrade`/`cancelTrade`) and renders whatever `state.trades`
-  comes back.
+  comes back. The two coin amounts ("you give" / "you get") are sliders,
+  not typed numbers — each is capped at `0` to the relevant player's
+  actual current balance (`players` is now threaded into every `TradeForm`
+  call site specifically so it can look these up), clamped to `0` rather
+  than going negative if that player is currently in debt. This both makes
+  picking an amount faster and structurally prevents ever submitting an
+  offer the server would reject as unaffordable, since the slider simply
+  can't be dragged past what the relevant player has.
 - `components/Auction.jsx` — rendered above `Trade` in the `Hud`, same
   gating (started, no winner). Lists every entry in `state.auctions`,
   **not turn-gated** — any active player can bid or pass on any open
@@ -604,9 +622,13 @@ the next remaining active player automatically becomes host.
   bids yet"), an `AuctionCountdown` (same ticks-every-second-purely-for
   -display pattern as `TurnCountdown`) derived from `auction.deadline`,
   turning urgent-red in the last 3 seconds — purely informational, the
-  server's own timer is what actually closes it — and either a bid input
-  + Bid/Pass buttons, or "You passed on this auction" if `myId` is
-  already in that auction's `passedIds`.
+  server's own timer is what actually closes it — and either three
+  increment buttons (`+$1`/`+$10`/`+$100`, each immediately submitting a
+  bid of *the current highest bid plus that amount* with no separate
+  confirm step — replaced a typed-amount-plus-"Bid"-button pair so a live
+  bidding war can move at one-click-per-raise speed) and a Pass button, or
+  "You passed on this auction" if `myId` is already in that auction's
+  `passedIds`.
 
 ## 4. Wire protocol (Socket.io events)
 

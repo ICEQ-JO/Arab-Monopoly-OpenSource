@@ -776,7 +776,12 @@ export class Room {
     if (!trade.requestProperties.every((id) => this.isTradeable(id, trade.toId))) {
       return { error: "The request is no longer valid" };
     }
-    if (fromPlayer.balance < trade.offerMoney || toPlayer.balance < trade.requestMoney) {
+    // Only actually giving money away requires affording it -- offering/requesting
+    // $0 must never fail this check just because the player's current balance
+    // happens to be negative (a trade is one of the few ways an indebted player can
+    // legitimately recover, by *receiving* money, so a $0 offer must be exempt).
+    if ((trade.offerMoney > 0 && fromPlayer.balance < trade.offerMoney) ||
+      (trade.requestMoney > 0 && toPlayer.balance < trade.requestMoney)) {
       return { error: "One of the players can no longer afford this trade" };
     }
 
