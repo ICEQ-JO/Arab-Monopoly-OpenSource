@@ -2,14 +2,16 @@ import { nanoid } from "nanoid";
 import { BOARD, TILE_TYPES, TOTAL_TILES, propertiesByGroup } from "./board.js";
 import { SURPRISE_CARDS, TREASURE_CARDS, shuffledDeck } from "./cards.js";
 
-const STARTING_BALANCE = 1500;
-const HOLDING_RELEASE_RENT = 50;
-const MAX_HOLDING_TURNS = 3;
-const TURN_TIME_LIMIT_MS = 4 * 60 * 1000;
-const DISCONNECT_GRACE_MS = 20 * 1000;
-const MORTGAGE_INTEREST_RATE = 0.1;
-const AUCTION_BASE_MS = 10 * 1000;
-const AUCTION_EXTEND_MS = 3 * 1000;
+// Exported so the test suite can assert against these by name instead of
+// hardcoding magic numbers that would silently drift out of sync if tuned here.
+export const STARTING_BALANCE = 1500;
+export const HOLDING_RELEASE_RENT = 50;
+export const MAX_HOLDING_TURNS = 3;
+export const TURN_TIME_LIMIT_MS = 4 * 60 * 1000;
+export const DISCONNECT_GRACE_MS = 20 * 1000;
+export const MORTGAGE_INTEREST_RATE = 0.1;
+export const AUCTION_BASE_MS = 10 * 1000;
+export const AUCTION_EXTEND_MS = 3 * 1000;
 
 const PLAYER_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6", "#1abc9c"];
 

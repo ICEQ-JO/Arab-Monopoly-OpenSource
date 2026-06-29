@@ -9,6 +9,83 @@ in the same pass.
 
 ---
 
+## Pass 15 — 2026-06-29 — Add a server-side regression test suite
+
+**Goal:** every pass so far had verified its fix with a direct `Room` unit
+test, then deleted it before committing — including a stale-state bug
+(Pass 10/11) that reappeared one line below its own fix, which a kept test
+would have caught automatically instead of needing a deliberate re-audit.
+Asked directly whether this could actually be built, then built it: a
+permanent `server/test/` suite using Node's built-in test runner (no new
+dependency — fits a project that only depends on Express/Socket.io/cors
+/nanoid), covering the bug classes found across this session's passes.
+
+**What was done:**
+- `server/test/helpers.js`: `makeRoom()` builds a started 2-player `Room`;
+  `withDice(pairs, fn)` deterministically patches `Math.random` so
+  `rollDice` produces exact `[d1, d2]` pairs in sequence, restoring it
+  afterward even if `fn` throws; `cleanup(room)` clears the turn timer, any
+  open auction timers, and any player grace timers — necessary because
+  `node --test` runs everything in one process, so a single leaked
+  `setTimeout` (e.g. the 4-minute turn timer) would keep that process
+  alive long after the suite finishes.
+- Six test files, one per bug category: `rollGating.test.js` (bonus-roll
+  -on-doubles, the three-doubles rule, and direct regression tests for both
+  Pass 10 and Pass 11's stale-state bugs), `holdingPen.test.js` (the
+  3-turn forced-pay cap, doubles-escape, pay/free-card alternatives),
+  `bankruptcy.test.js` (the Pass 13 deferred-bankruptcy redesign: debt
+  tolerated mid-turn, mortgaging enough vs. not enough, the
+  stuck-in-Holding-Pen auto-end path, the 2-player auto-win edge case),
+  `trade.test.js` (the Pass 14 debt-trading regression, funds checks,
+  mortgaged/developed exclusions, counter-offers, re-validation on
+  accept), `auction.test.js` (bid validation, the "last bidder hasn't bid
+  yet" edge case from Pass 7, voided bids on kick, deadline extension),
+  and `cardMove.test.js` (the deferred-move confirmation flow, wrong
+  -player rejection, the deferred bonus-roll handoff, confirming
+  `goToHolding` is correctly *not* deferred the same way).
+- Exported the previously-internal tuning constants from `Room.js`
+  (`HOLDING_RELEASE_RENT`, `MAX_HOLDING_TURNS`, `AUCTION_EXTEND_MS`, etc.)
+  so tests reference them by name instead of hardcoding magic numbers that
+  would silently drift out of sync if ever retuned.
+- Added `"test": "node --test"` to `server/package.json`.
+- Several of the test files themselves had bugs on the first pass — mostly
+  dice choices that, while satisfying the immediate assertion (e.g. "this
+  needs to be a double"), happened to land the player on a tile that
+  triggers a random card draw or an unowned-property buy prompt, setting
+  an unrelated `pendingAction` that masked the actual behavior being
+  tested or made an assertion flaky from run to run (since the deck shuffle
+  itself isn't seeded). Fixed by deliberately choosing dice that land on
+  deterministic tiles (fixed-amount tax tiles, or the Holding Pen tile
+  landed on directly rather than via the jailing tile) wherever a test
+  needed a real movement step to happen. Confirmed stable across five
+  repeated full runs after these fixes.
+
+**Why these calls:**
+- Node's built-in test runner over installing a framework: zero new
+  dependencies, and it's the exact same "instantiate a `Room`, monkeypatch
+  `Math.random`, assert on state" pattern already used informally in every
+  prior pass — formalizing it, not replacing it with something unfamiliar.
+- Exporting the tuning constants rather than leaving tests to hardcode the
+  same numbers `Room.js` already defines: a future pass that retunes, say,
+  `MAX_HOLDING_TURNS` shouldn't also require updating every test that
+  happens to know it's currently `3`.
+- Fixed the flaky test setups rather than loosening their assertions: a
+  test that only passes *because* its dice happened not to hit a random
+  tile this run isn't actually verifying the behavior it claims to: the
+  goal was deterministic correctness, not a passing run by luck.
+
+**Known gaps left for later:** server-only — the client components touched
+this session (`Trade.jsx`'s slider, `Auction.jsx`'s increment buttons)
+have no automated coverage; would need a separate frontend test setup
+(e.g. Vitest + React Testing Library) to add, and wasn't built this pass.
+
+**State at end of pass:** `npm test` in `server/` passes all 40 tests,
+confirmed stable across five repeated runs. No changes to game logic
+itself beyond the constant exports (verified backward-compatible — same
+values, just newly `export`ed).
+
+---
+
 ## Pass 14 — 2026-06-29 — Fix: trade funds check broke under debt; slider/bid UI rework
 
 **Goal:** continue testing Pass 13's deferred-bankruptcy feature. The user
