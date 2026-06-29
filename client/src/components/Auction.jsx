@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { socket } from "../socket";
+import { IconClock } from "./icons";
 
 function AuctionCountdown({ deadline }) {
   const [now, setNow] = useState(Date.now());
@@ -12,7 +13,7 @@ function AuctionCountdown({ deadline }) {
   const secondsLeft = Math.max(0, Math.round((deadline - now) / 1000));
   return (
     <p className={`turn-countdown ${secondsLeft <= 3 ? "turn-countdown-urgent" : ""}`}>
-      ⏱ closes in {secondsLeft}s{secondsLeft <= 3 ? " -- bid now to extend" : ""}
+      <IconClock /> closes in {secondsLeft}s{secondsLeft <= 3 ? " -- bid now to extend" : ""}
     </p>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { socket } from "../socket";
 import Trade from "./Trade";
 import Auction from "./Auction";
+import { IconClock, IconDice, IconSurprise, IconTreasure, IconTrophy } from "./icons";
 
 function TurnCountdown({ deadline }) {
   const [now, setNow] = useState(Date.now());
@@ -17,7 +18,7 @@ function TurnCountdown({ deadline }) {
   const secs = String(secondsLeft % 60).padStart(2, "0");
   return (
     <p className={`turn-countdown ${secondsLeft <= 30 ? "turn-countdown-urgent" : ""}`}>
-      ⏱ {mins}:{secs} left to act
+      <IconClock /> {mins}:{secs} left to act
     </p>
   );
 }
@@ -74,10 +75,14 @@ export default function Hud({ state, myId, onLeave }) {
           <TurnCountdown deadline={state.turnDeadline} />
           {state.lastRoll && (
             <p className="dice-display">
-              🎲 {state.lastRoll[0]} + {state.lastRoll[1]} = {state.lastRoll[0] + state.lastRoll[1]}
+              <IconDice /> {state.lastRoll[0]} + {state.lastRoll[1]} = {state.lastRoll[0] + state.lastRoll[1]}
             </p>
           )}
-          {state.lastCard && <p className="card-display">{state.lastCard.deck === "surprise" ? "❓" : "🎁"} {state.lastCard.text}</p>}
+          {state.lastCard && (
+            <p className="card-display">
+              {state.lastCard.deck === "surprise" ? <IconSurprise /> : <IconTreasure />} {state.lastCard.text}
+            </p>
+          )}
 
           {isMyTurn && !pending && me?.inHolding && !state.lastRoll && (
             <div className="buy-prompt">
@@ -187,7 +192,9 @@ export default function Hud({ state, myId, onLeave }) {
 
       {state.winnerId && (
         <div className="hud-section winner-banner">
-          <h2>🏆 {state.players.find((p) => p.id === state.winnerId)?.name} wins!</h2>
+          <h2>
+            <IconTrophy /> {state.players.find((p) => p.id === state.winnerId)?.name} wins!
+          </h2>
         </div>
       )}
 
