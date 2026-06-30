@@ -43,10 +43,14 @@ function ClassicTile({ tile, owned, players, pendingTileId, sideLen }) {
     >
       {!isCorner && groupColor && <div className="cv2-band" style={{ background: groupColor }} />}
       {!isCorner && ownerColor && <div className="cv2-owner-bar" style={{ background: ownerColor }} />}
+      {!isCorner && badgeValue != null && (
+        <div className="cv2-price-tag">
+          <span className="cv2-price">${badgeValue}</span>
+        </div>
+      )}
 
       <div className="cv2-body">
         <span className="cv2-name">{name}</span>
-        {badgeValue != null && <span className="cv2-price">${badgeValue}</span>}
       </div>
 
       {devLabel && <div className="cv2-dev">{devLabel}</div>}
@@ -75,6 +79,14 @@ export default function BoardClassic({ state, myId }) {
   const sideLen = board.length / 4;
   const N = sideLen + 1;
 
+  // Rim tracks (row 1 / row N / col 1 / col N) are wider than inner tracks so
+  // tiles take up more of the board and the center shrinks. Tiles become
+  // rectangular as a result (taller on top/bottom, wider on left/right) --
+  // confirmed look via prototype before implementing.
+  const RIM_FR = 1.7;
+  const INNER_FR = 1;
+  const gridTemplate = `${RIM_FR}fr repeat(${N - 2}, ${INNER_FR}fr) ${RIM_FR}fr`;
+
   const currentPlayerId = players[turnIndex]?.id;
   const pendingAction = state.pendingAction;
   const pendingTileId = pendingAction?.type === "awaitBuy"
@@ -87,8 +99,8 @@ export default function BoardClassic({ state, myId }) {
         className="cv2-board"
         style={{
           display: "grid",
-          gridTemplateColumns: `repeat(${N}, 1fr)`,
-          gridTemplateRows: `repeat(${N}, 1fr)`,
+          gridTemplateColumns: gridTemplate,
+          gridTemplateRows: gridTemplate,
           width: "100%",
           height: "100%",
         }}
