@@ -25,7 +25,7 @@ const FACE_ORIENTATION = {
 
 // Added to every target so the cube never rests dead-on -- a fixed camera-angle
 // offset that keeps the front face and one side face both in view at rest.
-const IDLE_TILT = { x: -10, y: 18 };
+const IDLE_TILT = { x: -22, y: 32 };
 
 function tiltedTarget(value) {
   const base = FACE_ORIENTATION[value] || FACE_ORIENTATION[1];
@@ -77,7 +77,6 @@ function Die3D({ value, rollSeq }) {
   const rotation = useDieRotation(value, rollSeq);
   return (
     <div className="die3d">
-      <div className="die3d-filler" />
       <div
         className="die3d-cube"
         style={{ transform: `rotateX(${rotation.x}deg) rotateY(${rotation.y}deg) rotateZ(${rotation.z}deg)` }}

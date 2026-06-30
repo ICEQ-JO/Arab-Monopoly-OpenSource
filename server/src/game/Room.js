@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import { BOARD, TILE_TYPES, TOTAL_TILES, propertiesByGroup } from "./board.js";
+import { TILE_TYPES, getBoard } from "./board.js";
 import { SURPRISE_CARDS, TREASURE_CARDS, shuffledDeck } from "./cards.js";
 import { CHARACTER_IDS, CHARACTER_NAMES } from "./characters.js";
 
@@ -21,39 +21,71 @@ function article(n) {
   return n === 8 || n === 11 ? "an" : "a";
 }
 
+const DEFAULT_RULES = {
+  vacationPot:       true,
+  noRentInPrison:    true,
+  evenBuild:         true,
+  doubleRentFullSet: true,
+  auction:           false,
+  startingCash:      1500,
+};
+
 export class Room {
-  constructor(code, hostId) {
+  constructor(code, hostId, gameMode = "normal", mapType = "fortune-city") {
     this.code = code;
     this.hostId = hostId;
-    this.players = []; // {id, token, name, color, connected, balance, position, inHolding, holdingTurns, holdingFreeCard, bankrupt, left, properties: [tileId]}
-    this.ownership = {}; // tileId -> { ownerId, houses }
+    this.gameMode = gameMode;
+    this.mapType = mapType;
+    const boardModule = getBoard(mapType);
+    this._board = boardModule.BOARD;
+    this._totalTiles = boardModule.TOTAL_TILES;
+    this._propertiesByGroup = boardModule.propertiesByGroup;
+    this.rules = { ...DEFAULT_RULES };
+    this.vacationPot = 0;
+    this.players = [];
+    this.ownership = {};
     this.started = false;
     this.turnIndex = 0;
     this.surpriseDeck = shuffledDeck(SURPRISE_CARDS);
     this.treasureDeck = shuffledDeck(TREASURE_CARDS);
     this.log = [];
     this.lastRoll = null;
-    this.pendingAction = null; // { type: 'awaitBuy'|'awaitRent'..., tileId }
+    this.pendingAction = null;
     this.winnerId = null;
     this.turnTimer = null;
     this.turnDeadline = null;
-    this.notify = null; // set by the server to broadcast state after an autonomous timeout kick
-    this.trades = []; // { id, fromId, toId, offerProperties, offerMoney, requestProperties, requestMoney }
-    this.auctions = []; // { id, tileId, highestBid, highestBidderId, passedIds }
-    this.canRollAgain = true; // false once the current player has used their roll for this turn
-    this.consecutiveDoubles = 0; // resets each turn; 3 in a row sends the roller to the Holding Pen
-    this.characterSelections = {}; // playerId -> characterId, set during pre-game lobby
-    this.rollSeq = 0; // increments on every rollDice call so the client can detect a fresh roll even if the numbers repeat
+    this.notify = null;
+    this.trades = [];
+    this.auctions = [];
+    this.canRollAgain = true;
+    this.consecutiveDoubles = 0;
+    this.characterSelections = {};
+    this.rollSeq = 0;
   }
 
-  addPlayer(id, token) {
+  updateSettings(hostId, { rules } = {}) {
+    if (this.hostId !== hostId) return { error: "Only the host can change settings" };
+    if (this.started) return { error: "Game already started" };
+    if (rules) {
+      for (const [k, v] of Object.entries(rules)) {
+        if (k in DEFAULT_RULES) this.rules[k] = v;
+      }
+    }
+    return { ok: true };
+  }
+
+  addPlayer(id, token, name = "", preferredColor = null) {
     if (this.players.find((p) => p.id === id)) return;
-    const color = PLAYER_COLORS[this.players.length % PLAYER_COLORS.length];
+    const takenColors = this.players.map((p) => p.color);
+    const fallback = PLAYER_COLORS[this.players.length % PLAYER_COLORS.length];
+    const color = (preferredColor && !takenColors.includes(preferredColor))
+      ? preferredColor
+      : fallback;
     const seatNum = this.players.length + 1;
     this.players.push({
       id,
       token,
-      name: `Seat ${seatNum}`,
+      name: name.trim() || `Seat ${seatNum}`,
       color,
       connected: true,
       graceTimer: null,
@@ -182,7 +214,9 @@ export class Room {
   }
 
   start() {
+    const startBalance = this.rules.startingCash ?? STARTING_BALANCE;
     for (const player of this.players) {
+      player.balance = startBalance;
       const charId = this.characterSelections[player.id];
       if (charId) {
         player.characterId = charId;
@@ -295,8 +329,8 @@ export class Room {
 
   movePlayer(player, steps) {
     const prev = player.position;
-    let next = (prev + steps) % TOTAL_TILES;
-    if (next < 0) next += TOTAL_TILES;
+    let next = (prev + steps) % this._totalTiles;
+    if (next < 0) next += this._totalTiles;
     if (steps > 0 && next < prev) {
       player.balance += 200;
       this.pushLog(`${player.name} passed Start Plaza and collected 200 coins.`);
@@ -306,7 +340,7 @@ export class Room {
   }
 
   resolveTile(player) {
-    const tile = BOARD[player.position];
+    const tile = this._board[player.position];
     switch (tile.type) {
       case TILE_TYPES.START:
         break;
@@ -318,7 +352,9 @@ export class Room {
           this.pendingAction = { type: "awaitBuy", tileId: tile.id, playerId: player.id };
         } else if (owned.ownerId !== player.id) {
           if (owned.mortgaged) {
-            this.pushLog(`${player.name} landed on ${tile.name}, but it's mortgaged -- no rent owed.`);
+            this.pushLog(`${player.name} landed on ${tile.name}, but it's mortgaged — no rent owed.`);
+          } else if (this.rules.noRentInPrison && this.playerById(owned.ownerId)?.inHolding) {
+            this.pushLog(`${player.name} landed on ${tile.name}, but the owner is in prison — no rent owed.`);
           } else {
             const rent = this.calcRent(tile, owned);
             this.transferMoney(player.id, owned.ownerId, rent);
@@ -329,6 +365,7 @@ export class Room {
       }
       case TILE_TYPES.TAX:
         player.balance -= tile.amount;
+        if (this.rules.vacationPot) this.vacationPot += tile.amount;
         this.pushLog(`${player.name} paid ${tile.amount} coins toll at ${tile.name}.`);
         break;
       case TILE_TYPES.SURPRISE:
@@ -341,6 +378,12 @@ export class Room {
         this.sendToHolding(player);
         break;
       case TILE_TYPES.REST:
+        if (this.rules.vacationPot && this.vacationPot > 0) {
+          player.balance += this.vacationPot;
+          this.pushLog(`${player.name} landed on Vacation and collected the pot of ${this.vacationPot} coins!`);
+          this.vacationPot = 0;
+        }
+        break;
       case TILE_TYPES.HOLDING:
       default:
         break;
@@ -354,20 +397,20 @@ export class Room {
   calcRent(tile, owned) {
     if (tile.type === TILE_TYPES.PROPERTY) {
       const houses = owned.houses || 0;
-      const groupTiles = propertiesByGroup(tile.group);
+      const groupTiles = this._propertiesByGroup(tile.group);
       const ownsAll = groupTiles.every((t) => this.ownership[t.id]?.ownerId === owned.ownerId);
       let rent = tile.rent[houses];
-      if (houses === 0 && ownsAll) rent *= 2;
+      if (houses === 0 && ownsAll && this.rules.doubleRentFullSet) rent *= 2;
       return rent;
     }
     if (tile.type === TILE_TYPES.TRANSIT) {
       const owner = owned.ownerId;
-      const count = BOARD.filter((t) => t.type === TILE_TYPES.TRANSIT && this.ownership[t.id]?.ownerId === owner).length;
+      const count = this._board.filter((t) => t.type === TILE_TYPES.TRANSIT && this.ownership[t.id]?.ownerId === owner).length;
       return tile.rent[Math.min(count - 1, tile.rent.length - 1)];
     }
     if (tile.type === TILE_TYPES.UTILITY) {
       const owner = owned.ownerId;
-      const count = BOARD.filter((t) => t.type === TILE_TYPES.UTILITY && this.ownership[t.id]?.ownerId === owner).length;
+      const count = this._board.filter((t) => t.type === TILE_TYPES.UTILITY && this.ownership[t.id]?.ownerId === owner).length;
       const mult = tile.multiplier[Math.min(count - 1, tile.multiplier.length - 1)];
       const roll = (this.lastRoll?.[0] || 0) + (this.lastRoll?.[1] || 0);
       return mult * roll;
@@ -390,6 +433,7 @@ export class Room {
     switch (effect.type) {
       case "pay":
         player.balance -= effect.amount;
+        if (this.rules.vacationPot) this.vacationPot += effect.amount;
         break;
       case "collect":
         player.balance += effect.amount;
@@ -505,7 +549,7 @@ export class Room {
       return { error: "No property to buy" };
     }
     const player = this.playerById(playerId);
-    const tile = BOARD[this.pendingAction.tileId];
+    const tile = this._board[this.pendingAction.tileId];
     if (player.balance < tile.price) return { error: "Not enough coins" };
     player.balance -= tile.price;
     player.properties.push(tile.id);
@@ -520,9 +564,9 @@ export class Room {
       return { error: "No property to decline" };
     }
     const tileId = this.pendingAction.tileId;
-    this.pushLog(`${this.playerById(playerId).name} declined to buy ${BOARD[tileId].name}.`);
+    this.pushLog(`${this.playerById(playerId).name} declined to buy ${this._board[tileId].name}.`);
     this.pendingAction = null;
-    this.startAuction(tileId);
+    if (this.rules.auction) this.startAuction(tileId);
     return { ok: true };
   }
 
@@ -542,7 +586,7 @@ export class Room {
     };
     this.auctions.push(auction);
     this.pendingAction = { type: "auction", tileId, auctionId: auction.id, playerId: this.currentPlayer()?.id };
-    this.pushLog(`${BOARD[tileId].name} is up for auction!`);
+    this.pushLog(`${this._board[tileId].name} is up for auction!`);
     this.scheduleAuctionTimer(auction.id);
   }
 
@@ -577,7 +621,7 @@ export class Room {
     auction.highestBidderId = playerId;
     auction.deadline = Math.max(auction.deadline, Date.now() + AUCTION_EXTEND_MS);
     this.scheduleAuctionTimer(auction.id);
-    this.pushLog(`${player.name} bid ${amount} coins on ${BOARD[auction.tileId].name}.`);
+    this.pushLog(`${player.name} bid ${amount} coins on ${this._board[auction.tileId].name}.`);
     this.maybeResolveAuction(auction.id);
     return { ok: true };
   }
@@ -587,7 +631,7 @@ export class Room {
     if (!auction) return { error: "Auction not found" };
     if (!auction.passedIds.includes(playerId)) {
       auction.passedIds.push(playerId);
-      this.pushLog(`${this.playerById(playerId)?.name ?? "A player"} passed on ${BOARD[auction.tileId].name}.`);
+      this.pushLog(`${this.playerById(playerId)?.name ?? "A player"} passed on ${this._board[auction.tileId].name}.`);
       this.maybeResolveAuction(auction.id);
     }
     return { ok: true };
@@ -611,7 +655,7 @@ export class Room {
     if (!auction) return;
     if (auction.timer) clearTimeout(auction.timer);
     this.auctions = this.auctions.filter((a) => a.id !== auctionId);
-    const tile = BOARD[auction.tileId];
+    const tile = this._board[auction.tileId];
     if (auction.highestBidderId) {
       const winner = this.playerById(auction.highestBidderId);
       winner.balance -= auction.highestBid;
@@ -638,7 +682,7 @@ export class Room {
       if (auction.highestBidderId === playerId) {
         auction.highestBidderId = null;
         auction.highestBid = 0;
-        this.pushLog(`A voided bid reopened the auction for ${BOARD[auction.tileId].name}.`);
+        this.pushLog(`A voided bid reopened the auction for ${this._board[auction.tileId].name}.`);
       }
       if (!auction.passedIds.includes(playerId)) auction.passedIds.push(playerId);
       this.maybeResolveAuction(auction.id);
@@ -646,16 +690,21 @@ export class Room {
   }
 
   buyHouse(playerId, tileId) {
-    const tile = BOARD[tileId];
+    const tile = this._board[tileId];
     const owned = this.ownership[tileId];
     if (!owned || owned.ownerId !== playerId || tile.type !== TILE_TYPES.PROPERTY) {
       return { error: "You do not own this property" };
     }
     if (owned.mortgaged) return { error: "You can't build on a mortgaged property" };
-    const groupTiles = propertiesByGroup(tile.group);
+    const groupTiles = this._propertiesByGroup(tile.group);
     const ownsAll = groupTiles.every((t) => this.ownership[t.id]?.ownerId === playerId);
     if (!ownsAll) return { error: "You must own the full color group" };
     if (owned.houses >= 5) return { error: "Already at max (hotel)" };
+    if (this.rules.evenBuild) {
+      const groupTiles = this._propertiesByGroup(tile.group);
+      const minHouses = Math.min(...groupTiles.map((t) => this.ownership[t.id]?.houses || 0));
+      if (owned.houses > minHouses) return { error: "Build evenly — upgrade another property in this group first" };
+    }
     const player = this.playerById(playerId);
     if (player.balance < tile.housePrice) return { error: "Not enough coins" };
     player.balance -= tile.housePrice;
@@ -665,12 +714,17 @@ export class Room {
   }
 
   sellHouse(playerId, tileId) {
-    const tile = BOARD[tileId];
+    const tile = this._board[tileId];
     const owned = this.ownership[tileId];
     if (!owned || owned.ownerId !== playerId || tile.type !== TILE_TYPES.PROPERTY) {
       return { error: "You do not own this property" };
     }
     if (!owned.houses) return { error: "There's nothing built here to sell" };
+    if (this.rules.evenBuild) {
+      const groupTiles = this._propertiesByGroup(tile.group);
+      const maxHouses = Math.max(...groupTiles.map((t) => this.ownership[t.id]?.houses || 0));
+      if (owned.houses < maxHouses) return { error: "Sell evenly — downgrade another property in this group first" };
+    }
     const player = this.playerById(playerId);
     const refund = Math.floor(tile.housePrice / 2);
     owned.houses -= 1;
@@ -680,7 +734,7 @@ export class Room {
   }
 
   mortgageProperty(playerId, tileId) {
-    const tile = BOARD[tileId];
+    const tile = this._board[tileId];
     const owned = this.ownership[tileId];
     if (!owned || owned.ownerId !== playerId || !tile?.price) {
       return { error: "You do not own this property" };
@@ -696,7 +750,7 @@ export class Room {
   }
 
   unmortgageProperty(playerId, tileId) {
-    const tile = BOARD[tileId];
+    const tile = this._board[tileId];
     const owned = this.ownership[tileId];
     if (!owned || owned.ownerId !== playerId || !owned.mortgaged) {
       return { error: "This property isn't mortgaged" };
@@ -711,7 +765,7 @@ export class Room {
   }
 
   unmortgageCost(tileId) {
-    const tile = BOARD[tileId];
+    const tile = this._board[tileId];
     const value = Math.floor(tile.price / 2);
     return value + Math.ceil(value * MORTGAGE_INTEREST_RATE);
   }
@@ -728,7 +782,7 @@ export class Room {
   // require selling houses, and often paying off the mortgage, before trading).
   isTradeable(tileId, ownerId) {
     const owned = this.ownership[tileId];
-    const tile = BOARD[tileId];
+    const tile = this._board[tileId];
     if (!owned || owned.ownerId !== ownerId || !tile) return false;
     if (tile.type !== TILE_TYPES.PROPERTY && tile.type !== TILE_TYPES.TRANSIT && tile.type !== TILE_TYPES.UTILITY) return false;
     return !owned.houses && !owned.mortgaged;
@@ -928,9 +982,13 @@ export class Room {
       trades: this.trades,
       auctions: this.auctions.map(({ timer, ...pub }) => pub),
       canRollAgain: this.canRollAgain,
-      board: BOARD,
+      board: this._board,
       characterSelections: this.characterSelections,
       rollSeq: this.rollSeq,
+      gameMode: this.gameMode,
+      mapType: this.mapType,
+      rules: this.rules,
+      vacationPot: this.vacationPot,
     };
   }
 
@@ -958,6 +1016,10 @@ export class Room {
       consecutiveDoubles: this.consecutiveDoubles,
       characterSelections: this.characterSelections,
       rollSeq: this.rollSeq,
+      gameMode: this.gameMode,
+      mapType: this.mapType,
+      rules: this.rules,
+      vacationPot: this.vacationPot,
     };
   }
 
@@ -970,7 +1032,9 @@ export class Room {
   //  - The current player's turn timer is re-armed for a fresh full duration
   //    rather than trying to preserve exactly how much time was left.
   static fromSnapshot(snapshot) {
-    const room = new Room(snapshot.code, snapshot.hostId);
+    const room = new Room(snapshot.code, snapshot.hostId, snapshot.gameMode || "normal", snapshot.mapType || "fortune-city");
+    if (snapshot.rules) room.rules = { ...DEFAULT_RULES, ...snapshot.rules };
+    if (snapshot.vacationPot !== undefined) room.vacationPot = snapshot.vacationPot;
     room.started = snapshot.started;
     room.turnIndex = snapshot.turnIndex;
     room.players = snapshot.players.map((p) => ({ ...p, graceTimer: null }));
