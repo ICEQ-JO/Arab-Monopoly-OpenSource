@@ -1,0 +1,331 @@
+/* ============================================================
+   Classic Authentic Monopoly Theme  — cv2-* namespace
+   Cream/ivory tiles, thick black borders, colored outer band,
+   classic serif typography. Timeless 1980s Monopoly look.
+   ============================================================ */
+
+/* ---------- Root wrapper: centers board in its container ---------- */
+.cv2-root {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: #d9c99a;            /* warm parchment surround */
+  box-sizing: border-box;
+  padding: 12px;
+  font-family: Georgia, "Times New Roman", "Amiri", serif;
+}
+
+/* ---------- Board grid ---------- */
+.cv2-board {
+  background: #f5ecd0;            /* cream board surface */
+  border: 5px solid #111;
+  box-shadow:
+    0 0 0 2px #8b1a1a,            /* thin red pinstripe just inside border */
+    0 10px 40px rgba(0, 0, 0, 0.55);
+  box-sizing: border-box;
+  position: relative;
+}
+
+/* ---------- Individual tiles ---------- */
+.cv2-tile {
+  position: relative;
+  border: 1.5px solid #111;
+  background: #faf6e8;            /* ivory tile base */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* ---------- Colored band — outer edge of each side ---------- */
+/* TOP side: band on top */
+.cv2-side-top .cv2-band {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28%;
+  border-bottom: 1.5px solid #111;
+}
+
+/* RIGHT side: band on right */
+.cv2-side-right .cv2-band {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 28%;
+  border-left: 1.5px solid #111;
+}
+
+/* BOTTOM side: band on bottom */
+.cv2-side-bottom .cv2-band {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 28%;
+  border-top: 1.5px solid #111;
+}
+
+/* LEFT side: band on left */
+.cv2-side-left .cv2-band {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 28%;
+  border-right: 1.5px solid #111;
+}
+
+/* Corner tiles have no band (no tile.group) so nothing needed, but neutralise */
+.cv2-corner .cv2-band {
+  display: none;
+}
+
+/* ---------- Ownership bar — INNER edge (opposite the band) ---------- */
+.cv2-side-top .cv2-owner-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+}
+
+.cv2-side-right .cv2-owner-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 5px;
+}
+
+.cv2-side-bottom .cv2-owner-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+}
+
+.cv2-side-left .cv2-owner-bar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 5px;
+}
+
+/* ---------- Tile body ---------- */
+.cv2-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  text-align: center;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  /* push the body into the non-band area by using a small top-padding for
+     top/bottom tiles; for left/right we rely on writing-mode */
+  position: relative;
+  z-index: 1;
+}
+
+/* Push body away from the band so text isn't hidden under it */
+.cv2-side-top .cv2-body    { padding-top:  calc(28% + 2px); }
+.cv2-side-bottom .cv2-body { padding-bottom: calc(28% + 2px); }
+.cv2-side-right .cv2-body  { padding-right: calc(28% + 2px); }
+.cv2-side-left .cv2-body   { padding-left:  calc(28% + 2px); }
+
+/* Rotate text so it reads toward board center for side tiles */
+.cv2-side-left .cv2-body {
+  writing-mode: vertical-lr;
+  transform: rotate(180deg);
+}
+
+.cv2-side-right .cv2-body {
+  writing-mode: vertical-rl;
+}
+
+/* ---------- Name & price ---------- */
+.cv2-name {
+  font-size: 7px;
+  font-weight: 700;
+  font-family: Georgia, serif;
+  line-height: 1.15;
+  word-break: break-word;
+  color: #111;
+}
+
+.cv2-price {
+  font-size: 6px;
+  opacity: 0.75;
+  font-family: Georgia, serif;
+  color: #3d1c00;
+  margin-top: 1px;
+}
+
+/* Corners: bigger content area, no rotation needed */
+.cv2-corner .cv2-body {
+  writing-mode: initial;
+  transform: none;
+  padding: 4px;
+  font-size: 8px;
+  font-weight: 800;
+  color: #111;
+}
+
+.cv2-corner .cv2-name {
+  font-size: 8px;
+  font-weight: 800;
+}
+
+/* ---------- Dev badge (house count / mortgaged) ---------- */
+.cv2-dev {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 7px;
+  font-weight: 800;
+  color: #1a6b2a;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid #111;
+  border-radius: 2px;
+  padding: 0 2px;
+  line-height: 1.3;
+  z-index: 4;
+}
+
+/* ---------- Player tokens ---------- */
+.cv2-tokens {
+  position: absolute;
+  bottom: 2px;
+  left: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.cv2-token {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 7px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+  line-height: 1;
+}
+
+/* ---------- Pending highlight ---------- */
+.cv2-pending {
+  outline: 2px solid #cc0000;
+  outline-offset: -2px;
+  animation: cv2-pulse 1.1s ease-in-out infinite;
+  z-index: 6;
+}
+
+@keyframes cv2-pulse {
+  0%, 100% { box-shadow: inset 0 0 4px 2px rgba(204, 0, 0, 0.55); }
+  50%       { box-shadow: inset 0 0 8px 4px rgba(204, 0, 0, 0.9); }
+}
+
+/* ---------- Board center ---------- */
+.cv2-center {
+  grid-row: 2 / 13;
+  grid-column: 2 / 13;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #faf6e8;
+  background-image:
+    repeating-linear-gradient(
+      45deg,
+      rgba(100, 75, 30, 0.04) 0,
+      rgba(100, 75, 30, 0.04) 2px,
+      transparent 2px,
+      transparent 14px
+    );
+  border: 2px double #333;
+  padding: 12px;
+}
+
+.cv2-title {
+  font-family: Georgia, "Times New Roman", "Amiri", serif;
+  font-size: clamp(18px, 3vw, 36px);
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: #111;
+  text-align: center;
+  background: #cc1111;
+  color: #fff8e7;
+  padding: 8px 24px;
+  border: 3px solid #111;
+  box-shadow: 3px 4px 0 #7a0000;
+  transform: rotate(-1.5deg);
+  text-shadow: 1px 1px 0 #7a0000;
+}
+
+.cv2-dice {
+  font-family: Georgia, serif;
+  font-size: clamp(14px, 2vw, 22px);
+  font-weight: 700;
+  color: #111;
+  background: #fff8e7;
+  border: 2px solid #111;
+  border-radius: 6px;
+  padding: 6px 16px;
+  box-shadow: 2px 3px 0 rgba(0, 0, 0, 0.3);
+  letter-spacing: 2px;
+}
+
+.cv2-players {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+}
+
+.cv2-player-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: Georgia, serif;
+  font-size: clamp(9px, 1.1vw, 13px);
+  font-weight: 600;
+  color: #111;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+
+.cv2-player-row span:last-child {
+  margin-left: auto;
+  font-weight: 700;
+  color: #3d1c00;
+}
+
+.cv2-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.35);
+  flex-shrink: 0;
+}

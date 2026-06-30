@@ -23,10 +23,11 @@ const QUOTES = [
 ];
 
 const MAPS = [
-  { key: "fortune-city", label: "مدينة الثروة",  flag: "🇦🇪", sub: "Fortune City"   },
-  { key: "arab-world",   label: "العالم العربي",  flag: "🌙",  sub: "Arab World"     },
-  { key: "worldwide",    label: "Mr. Worldwide",  flag: "🌍",  sub: "Global Cities"  },
-  { key: "arab-empire",  label: "الإمبراطورية",   flag: "⚔️",  sub: "Arab Empire"    },
+  { key: "fortune-city",    label: "مدينة الثروة",  flag: "🇦🇪", sub: "Fortune City"    },
+  { key: "arab-world",      label: "العالم العربي",  flag: "🌙",  sub: "Arab World"      },
+  { key: "worldwide",       label: "Mr. Worldwide",  flag: "🌍",  sub: "Global Cities"   },
+  { key: "arab-empire",     label: "الإمبراطورية",   flag: "⚔️",  sub: "Arab Empire"     },
+  { key: "classic-vintage", label: "مونوبولي عرب",   flag: "🎩",  sub: "Classic Vintage" },
 ];
 
 const RULE_DEFS = [

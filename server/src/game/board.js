@@ -8,12 +8,14 @@ import * as FC from "./boards/fortune-city.js";
 import * as WW from "./boards/worldwide.js";
 import * as AW from "./boards/arab-world.js";
 import * as AE from "./boards/arab-empire.js";
+import * as CV from "./boards/classic-vintage.js";
 
 const MAP_BOARDS = {
-  "fortune-city": FC,
-  "worldwide":    WW,
-  "arab-world":   AW,
-  "arab-empire":  AE,
+  "fortune-city":    FC,
+  "worldwide":       WW,
+  "arab-world":      AW,
+  "arab-empire":     AE,
+  "classic-vintage": CV,
 };
 
 export function getBoard(mapType = "fortune-city") {

@@ -720,14 +720,14 @@
   padding: 20px;
   min-height: 100vh;
   align-items: center;
-  background: #0f0c1a;
-  /* Dark theme overrides for all var() used inside game-screen */
-  --panel: #1c1929;
-  --panel-2: #13111e;
-  --text: #e4ddf7;
-  --text-dim: #8070a8;
-  --border: #2c2448;
-  --border-light: #3a3060;
+  background: #d9c99a;
+  /* Classic vintage parchment theme overrides for all var() used inside game-screen */
+  --panel: #f3e8c9;
+  --panel-2: #e6d6a8;
+  --text: #2a1c0d;
+  --text-dim: #7a6840;
+  --border: #1f1608;
+  --border-light: #a78c54;
   --accent: #c9960a;
   --accent-ink: #fff8e0;
 }
