@@ -45,6 +45,13 @@ display results.
   it's exhausted (decks are drawn from the front, not replaced after each
   draw).
 
+Also `game/characters.js`, same static-data pattern: `CHARACTER_IDS` (the
+six playable codenames — `D`, `Z`, `Y`, `H`, `SD`, `SE`) and
+`CHARACTER_NAMES` (codename → real display name, e.g. `D: "دروبي"`). This
+is **identity data only** — there is no ability logic anywhere server-side
+yet; the full ability spec lives in `characters.md` as a design doc not
+yet implemented (see §6).
+
 ### 2.3 `game/Room.js` — the game engine
 One `Room` instance per active game (keyed by room code).
 
@@ -85,6 +92,19 @@ One `Room` instance per active game (keyed by room code).
 - `trades[]` — `{ id, fromId, toId, offerProperties, offerMoney,
   requestProperties, requestMoney }`. Pending trade offers between any two
   active players — see "Trading" below.
+- `characterSelections{}` — `playerId -> characterId`, populated only
+  before `started` becomes true. Not cleared automatically once the game
+  starts; `start()` reads it once to assign each player's final
+  `characterId`/`name`, after which it's just inert history for that room.
+- `rollSeq` — an integer, starts at 0, incremented once per actual
+  `rollDice()` call (not per broadcast). Exists purely so the client can
+  detect "a new roll genuinely just happened" independent of the dice
+  values themselves — `lastRoll`'s *value* alone isn't a reliable signal
+  for this, since rolling the same double twice in a row produces two
+  broadcasts with identical numbers, and every broadcast re-serializes a
+  brand-new array over the wire regardless of whether anything changed.
+  Used client-side to trigger the dice-roll animation exactly once per
+  real roll (see `Dice.jsx` below), never to gate any server-side logic.
 
 **Core flow:**
 ```
@@ -246,6 +266,27 @@ one. Fixed by tracking two pieces of room-level state, both reset to
   is exactly one live timer per room at any moment (Section "Turn timer"
   below has the full rationale).
 - `toState()` is the **entire wire contract** — see §4.
+
+**Character selection (pre-game only):** a player has no name of their own
+choosing in this game — identity comes entirely from the character they
+pick. `addPlayer` assigns a throwaway placeholder name (`"Seat N"`,
+ordinal = join order) purely so the lobby has *something* to display
+before anyone's picked; it's never shown once `start()` runs.
+- `selectCharacter(playerId, characterId)` — rejected if the game has
+  already started, if `characterId` isn't one of `CHARACTER_IDS`, or if a
+  *different* player already holds it (re-selecting your own current pick
+  is a harmless no-op overwrite of the same map entry, not an error).
+- `resetCharacterSelections(playerId)` — host-only, pre-start-only; empties
+  the whole map so everyone has to pick again. Used by the host to force a
+  re-pick if, e.g., someone wants to swap characters around before
+  starting.
+- `start()` now does one extra pass before flipping `started`: for every
+  player with an entry in `characterSelections`, sets `player.characterId`
+  and overwrites `player.name` with `CHARACTER_NAMES[characterId]` — this
+  is the actual mechanism by which "the character you picked becomes who
+  you are" takes effect. A player with no selection (shouldn't be
+  reachable in practice — see the `startGame` precondition in §2.4) simply
+  keeps their placeholder name.
 
 **Turn timer (4-minute hard cap):** every player gets exactly
 `TURN_TIME_LIMIT_MS` (4 minutes) of wall-clock time to complete their
@@ -445,7 +486,17 @@ module-level maps translate between them per connection:
 both in the ack — `token` is a write-once secret the client holds onto
 (localStorage) purely to reclaim a seat within the 20-second disconnect
 grace window (§2.3); it has no other purpose and is never broadcast to
-other clients. Every other handler resolves the caller's `playerId` via
+other clients. Neither event takes a `name` anymore — a player's eventual
+display name comes from the character they pick (§2.3 "Character
+selection"), not from anything typed at join time.
+
+**Character selection requires every seat filled before `startGame`
+works.** On top of its existing host-only/2-player-minimum checks,
+`startGame` now also requires `room.characterSelections` to have an entry
+for every current player — if not, the request is just silently ignored
+(no error ack needed; the client already disables its own Start button
+under the same condition, so a legitimate client never sends this request
+in the first place). Every other handler resolves the caller's `playerId` via
 `socketToPlayer.get(socket.id)` before calling into `Room` — `Room`
 methods never see a raw socket id. Right after a room is created,
 `index.js` also wires `room.notify = () => broadcastState(code)` so the
@@ -552,16 +603,79 @@ the next remaining active player automatically becomes host.
   it just waits, since socket.io will keep retrying the connection on its
   own and `handleConnect` will attempt the rejoin if that succeeds within
   the window. Holds no derived game state of its own — `myId` is the
-  stable `playerId` returned by the server, never `socket.id`.
-- `components/Lobby.jsx` — create-room / join-room form. On a successful
-  ack, hands the full `{ code, playerId, token }` up to `App`, which saves
-  it via `saveSession` before entering the game screen.
+  stable `playerId` returned by the server, never `socket.id`. Three
+  render phases now instead of two: `!joined` → `Lobby`; `joined &&
+  !state.started` → `CharacterSelect` (new — see below); `joined &&
+  state.started` → the board/HUD game screen.
+- `components/Lobby.jsx` — create-room / join-room form. **No name field**
+  — a player's eventual display name comes entirely from the character
+  they pick on the next screen, not from anything typed here. On a
+  successful ack, hands the full `{ code, playerId, token }` up to `App`,
+  which saves it via `saveSession` before moving to character selection.
+- `data/characters.js` — client-side display data for the six characters:
+  `id`, real `name`, a one-line `description`, `passive`/`active` ability
+  flavor text (placeholder wording — the real ability spec lives only in
+  `characters.md` until a future implementation pass), and `v1`/`v2`
+  portrait image paths (served from `public/characters/<id>/`). This is
+  purely presentational data, independent of and not synced with the
+  server's `characters.js` (which only knows ids and real names, no
+  images or descriptions).
+- `components/CharacterCard.jsx` — a click-to-flip card for one character.
+  Front: balance-gated portrait (`player.balance >= 3000 ? v2 : v1`),
+  name, description. Back: passive/active text plus a context-sensitive
+  control — `Play as <name>` if unclaimed, `Change character` if it's the
+  viewer's own current pick, or a plain `Taken by <name>` label (no
+  button) if someone else already has it. Used in both `CharacterSelect`
+  (pre-game) and `PlayerCard` (in-game, see below).
+- `components/CharacterSelect.jsx` — the pre-game lobby screen. Shows the
+  room code, a chip per player (color swatch, their picked character's
+  name or "picking…", a Host badge), the full 6-card grid via
+  `CharacterCard`, and host-only Reset-selections/Start-game controls —
+  Start is disabled (client-side) until every current player has a pick,
+  mirroring the server's own `startGame` precondition (§2.4). Emits
+  `selectCharacter`/`resetCharacterSelections`/`startGame`; renders
+  nothing it doesn't already have from `state.characterSelections` and
+  `state.players`.
+- `components/PlayerCard.jsx` — the viewer's *own* character card, shown
+  in-game (not during selection) in a dedicated column to the left of the
+  board. Same flip/portrait-swap behavior as `CharacterCard`'s front face,
+  but simplified to display-only (no select/change controls — the pick is
+  already locked in once the game has started). The front face's lower
+  portion is an intentionally empty `.player-card-tracker` div — reserved
+  for a future per-character ability-cooldown/use-count display once
+  abilities are implemented (§6), not built out yet.
 - `components/Board.jsx` — `getGridPos(i)` maps each of the 32 tile indices
   onto a 9×9 CSS grid perimeter (tiles 0/8/16/24 are the four corners).
   Purely presentational: reads `board`, `ownership`, `players`,
-  `pendingAction` props and renders tiles, ownership color strip, house
-  count (or an "M" badge in place of the house count when `owned.mortgaged`
-  is true), and player tokens.
+  `pendingAction`, `lastRoll`, `rollSeq` props and renders tiles, ownership
+  color strip, house count (or an "M" badge in place of the house count
+  when `owned.mortgaged` is true), player tokens, and the board-center
+  title/dice display (see `Dice.jsx` below).
+- `components/Dice.jsx` — replaces what used to be a static "🎲 3+4=7" text
+  line with two animated CSS 3D cubes. Each die is six absolutely
+  -positioned faces (`translateZ` + a per-face `rotate`) forming a real
+  cube, each showing the classic 6-value pip layout. `FACE_ORIENTATION`
+  maps each value 1-6 to the `{x, y}` cube rotation that brings that face
+  to point at the viewer — derived as the inverse of each face's own
+  placement transform, since CSS composes parent-rotation-then-child
+  -placement. On every `rollSeq` change (not `lastRoll` directly — see
+  §2.3 for why), computes a forward-only delta from the cube's current
+  resting angle to the new target, adds 1-2 random extra full spins for
+  flourish, and lets a plain CSS `transition` interpolate through it —
+  this works because the CSS transform spec interpolates matching
+  rotate-function lists component-wise rather than via shortest-angular
+  -path, so a multi-hundred-degree target genuinely animates through
+  several visible spins instead of snapping straight there. A small idle
+  tilt (`IDLE_TILT`, a fixed `{x, y}` offset added to every target) keeps
+  the cube resting at an angle instead of dead-on, so more than one face
+  is visible at rest; a `.die3d-filler` — a static, identically-styled
+  square sitting directly behind the spinning cube — plugs the visual gap
+  that would otherwise let the board show through mid-spin, without
+  needing a separate backdrop panel. The dark backdrop that *was* tried
+  as a separate `.dice-stage` panel was relocated, not kept: it now lives
+  on `.board-center` itself (the inner area holding the title and the
+  dice), not as its own floating element — see `progress.md` Pass 16 for
+  the iteration history.
 - `components/Hud.jsx` — turn indicator, a live countdown derived from
   `state.turnDeadline` (`TurnCountdown`, ticks every second client-side
   purely for display — the server enforces the actual cutoff regardless of
@@ -635,10 +749,12 @@ the next remaining active player automatically becomes host.
 **Client → Server**
 | Event | Payload | Notes |
 |---|---|---|
-| `createRoom` | `{ name }` | ack: `{ ok, code, playerId, token }` or `{ error }` |
-| `joinRoom` | `{ code, name }` | ack: `{ ok, code, playerId, token }` or `{ error }`; rejects if started/full |
+| `createRoom` | — | no `name` — identity comes from the chosen character (see `selectCharacter`); ack: `{ ok, code, playerId, token }` or `{ error }` |
+| `joinRoom` | `{ code }` | ack: `{ ok, code, playerId, token }` or `{ error }`; rejects if started/full |
 | `rejoinRoom` | `{ code, playerId, token }` | ack: `{ ok, code, playerId, token }` or `{ error }`; only succeeds within the 20s disconnect grace window |
-| `startGame` | — | host-only, requires ≥2 players |
+| `selectCharacter` | `{ characterId }` | pre-start-only; rejects if already taken by someone else; ack: `{ ok }` or `{ error }` |
+| `resetCharacterSelections` | — | host-only, pre-start-only; clears every player's pick |
+| `startGame` | — | host-only, requires ≥2 players **and** every player having a `characterSelections` entry |
 | `rollDice` | — | current-player-only; rejected if `pendingAction` set |
 | `buyProperty` | — | resolves `pendingAction: awaitBuy` |
 | `declineBuy` | — | resolves `pendingAction: awaitBuy`; opens an auction on that tile |
@@ -671,12 +787,14 @@ the next remaining active player automatically becomes host.
   ownership: {...},
   log: [...up to 20],
   lastRoll: [d1, d2] | null,
+  rollSeq: number,        // increments once per real rollDice() call -- drives the dice animation, not a gameplay signal
   canRollAgain: boolean,  // client only shows "Roll dice" when true
   lastCard: { deck, text } | null,
   pendingAction: {...} | null,
   turnDeadline: <epoch ms> | null,  // for the client's countdown display only
   trades: [...],         // see §2.3 "Trading"
   auctions: [...],       // see §2.3 "Auctions"
+  characterSelections: {...},  // playerId -> characterId, see §2.3 "Character selection"
   board: BOARD,          // static, sent every time (cheap, simplifies client)
 }
 ```
@@ -841,8 +959,35 @@ grows much larger or tick rate increases.
   acknowledgment that "secret" here means "not broadcast to other
   players," not "encrypted at rest." Fine for a casual game between
   friends; would need revisiting for anything more sensitive.
+- **A player's display name is entirely derived from their chosen
+  character, never typed.** `createRoom`/`joinRoom` no longer accept a
+  `name` at all; the placeholder name `addPlayer` assigns (`"Seat N"`) is
+  only ever visible pre-game and is overwritten by `start()` from
+  `CHARACTER_NAMES` once everyone's picked. There is no path for a player
+  to end up with any other display name.
+- **Character selection is enforced once, at `startGame` time, not
+  continuously.** `selectCharacter`'s own uniqueness check (can't take a
+  character someone else already holds) is the only ongoing guard;
+  nothing re-validates `characterSelections` between picks and the start
+  of the game beyond that, since the only way entries get added or
+  removed pre-start is through `selectCharacter`/`resetCharacterSelections`
+  themselves, both of which already enforce it on the way in.
 
 ## 6. Known gaps (not yet built)
+- **Character abilities are entirely unimplemented.** `characters.md`
+  has the full locked design (D's toll zone, Z's trade/tax skim, Y's
+  seize/demolish, H's territory expansion, SD's station toll plus attack
+  power, SE's bank bonus plus alliance) but none of it is wired into
+  `Room.js` yet — picking a character currently only changes a player's
+  name/portrait, with zero gameplay effect. This was an explicit scope
+  boundary for the pass that built selection, not an oversight.
+- The flavor-text `passive`/`active` descriptions in `client/src/data/
+  characters.js` are placeholder wording the user asked to fill in "for
+  now" — not the real ability spec, which stays in `characters.md` until
+  an implementation pass exists to consume it.
+- `PlayerCard.jsx`'s `.player-card-tracker` div is intentionally empty —
+  reserved for a future per-character ability-cooldown/use-count display,
+  not built out yet since there are no abilities to track.
 - The grace window is a single fixed 20s for everyone, with no visibility
   into it for other players beyond a generic "reconnecting..." badge —
   there's no shared countdown showing exactly how much of the window is

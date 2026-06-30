@@ -72,27 +72,27 @@ function bindSocket(socket, roomCode, playerId) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("createRoom", ({ name }, cb) => {
+  socket.on("createRoom", (_, cb) => {
     const playerId = nanoid();
     const token = nanoid();
     const code = generateRoomCode();
     const room = new Room(code, playerId);
     room.notify = () => broadcastState(code);
-    room.addPlayer(playerId, name || "Player", token);
+    room.addPlayer(playerId, token);
     rooms.set(code, room);
     bindSocket(socket, code, playerId);
     cb?.({ ok: true, code, playerId, token });
     broadcastState(code);
   });
 
-  socket.on("joinRoom", ({ code, name }, cb) => {
+  socket.on("joinRoom", ({ code }, cb) => {
     const room = rooms.get(code?.toUpperCase());
     if (!room) return cb?.({ error: "Room not found" });
     if (room.started) return cb?.({ error: "Game already started" });
     if (room.players.length >= 6) return cb?.({ error: "Room full" });
     const playerId = nanoid();
     const token = nanoid();
-    room.addPlayer(playerId, name || "Player", token);
+    room.addPlayer(playerId, token);
     bindSocket(socket, room.code, playerId);
     cb?.({ ok: true, code: room.code, playerId, token });
     broadcastState(room.code);
@@ -130,8 +130,25 @@ io.on("connection", (socket) => {
     const playerId = getPlayerId(socket);
     if (!room || room.hostId !== playerId) return;
     if (room.players.length < 2) return;
+    const unselected = room.players.filter((p) => !room.characterSelections[p.id]);
+    if (unselected.length > 0) return;
     room.start();
     broadcastState(room.code);
+  });
+
+  socket.on("selectCharacter", ({ characterId }, cb) => {
+    const room = getRoom(socket);
+    if (!room) return cb?.({ error: "Room not found" });
+    const result = room.selectCharacter(getPlayerId(socket), characterId);
+    if (result.ok) broadcastState(room.code);
+    cb?.(result);
+  });
+
+  socket.on("resetCharacterSelections", () => {
+    const room = getRoom(socket);
+    if (!room) return;
+    const result = room.resetCharacterSelections(getPlayerId(socket));
+    if (result.ok) broadcastState(room.code);
   });
 
   socket.on("rollDice", () => {

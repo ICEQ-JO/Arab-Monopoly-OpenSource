@@ -9,6 +9,226 @@ in the same pass.
 
 ---
 
+## Pass 16 — 2026-06-30 — Character selection (D/Z/Y/H/SD/SE), board widening, animated dice
+
+**Goal:** the user fleshed out the 6-character design from `characters.md`
+with real names, portrait images, and short descriptions, and asked to
+build the *selection* layer — pick a character before the game starts,
+become that character for the room — explicitly scoped to UI/selection
+only; wiring the actual abilities (toll skims, seize/demolish, alliances)
+into gameplay is deferred to a future session. Also asked for two
+unrelated UI passes in the same session: widen the board, and add a real
+animated dice-roll instead of a static "🎲 3+4=7" text line.
+
+**What was done (character selection):**
+- Real names assigned to the six codenames from `characters.md`: D = دروبي,
+  Z = هرم الزرقا (corrected mid-session from an initial هرم الزرقة), Y = Big
+  Yahu, H = Hitler (corrected mid-session from an initial "Hintler"), SD =
+  صدام حسين, SE = السيسي — all explicitly confirmed by the user as
+  intentional joke names, not a request to second-guess.
+- `server/src/game/characters.js` (new): `CHARACTER_IDS` and
+  `CHARACTER_NAMES`, the same static-data pattern as `board.js`/`cards.js`.
+- `Room.js`: added `characterSelections{}` (`playerId -> characterId`, reset
+  on room creation, never auto-cleared otherwise). `selectCharacter
+  (playerId, characterId)` validates the game hasn't started, the id is
+  real, and no *other* player already holds it (re-selecting your own pick
+  is allowed, since it's just an overwrite of the same key).
+  `resetCharacterSelections(playerId)` is host-only, pre-start-only, and
+  just empties the map. `start()` now walks every player and, if they have
+  a selection, sets `player.characterId` and overwrites `player.name` with
+  the character's real name — this is *the* mechanism that replaces free
+  -text name entry: a player's in-game identity is now their chosen
+  character, not anything they typed.
+- `index.js`: `createRoom`/`joinRoom` no longer accept or require a `name`
+  in their payload — `addPlayer` now assigns a placeholder (`"Seat N"`)
+  that only exists pre-game and gets overwritten by `start()` once
+  everyone's picked. Added `selectCharacter`/`resetCharacterSelections`
+  socket events. `startGame` gained one more precondition alongside the
+  existing host-only/2-player-minimum checks: every player must have an
+  entry in `characterSelections`, or the request is silently ignored (no
+  separate error path needed — the client already disables the Start
+  button itself until that's true).
+- `client/src/data/characters.js` (new): the six characters' display data
+  — name, a one-line description, a short flavor-text `passive`/`active`
+  ability summary (placeholder wording, explicitly marked as "edit later"
+  by the user — not the real ability spec, which stays in `characters.md`
+  until a future implementation pass), and `v1`/`v2` image paths.
+- `client/public/characters/{D,Z,Y,H,SD,SE}/v1.*`, `v2.*` (new): real
+  portrait images the user supplied, copied in from a top-level
+  `characters/` folder with every extension normalized to lowercase (one
+  source file was `v1.JPG` — left as-is it would've worked fine on
+  Windows but silently 404'd on any case-sensitive deployment filesystem).
+  `v1` is the default portrait; `v2` swaps in once that player's balance
+  hits $3000+, computed purely client-side (`player.balance >= 3000 ?
+  char.v2 : char.v1`) — no server change needed since balance is already
+  broadcast.
+- `client/src/components/CharacterCard.jsx` (new): a click-to-flip card —
+  front shows the balance-gated portrait, name, and description; back
+  shows the full passive/active text plus a context-sensitive
+  button/label (`Play as X` if unclaimed, `Change character` if it's
+  already yours, `Taken by X` — no button — if it's someone else's pick).
+- `client/src/components/CharacterSelect.jsx` (new): the pre-game lobby
+  screen, replacing the old immediate jump from `Lobby` straight to the
+  board. Shows the room code, a chip per player (color swatch, picked
+  -character name or "picking…", a Host badge), the 6-card grid, and
+  host-only Reset/Start controls — Start is disabled until every current
+  player has a selection.
+- `client/src/components/Lobby.jsx`: the "Your name" field is gone
+  entirely — just Create or enter-a-code-and-Join, matching the new rule
+  that identity comes from the character you pick, not free text.
+- `client/src/App.jsx`: the `joined && !state.started` window now renders
+  `CharacterSelect` instead of jumping straight to the board; `joined &&
+  state.started` is unchanged.
+- `client/src/components/PlayerCard.jsx` (new) + `App.css`: the user's
+  *own* character card now sits in a third, 230px-wide grid column to the
+  left of the board during actual gameplay (not just pre-game) —
+  click-to-flip like the selection-screen card, same balance-gated
+  portrait swap, `align-self: stretch` so it matches the board's rendered
+  height instead of leaving a gap below it. The front face currently ends
+  in an empty `.player-card-tracker` div below the portrait/description —
+  deliberately blank, reserved for a future ability-cooldown/use-count
+  display once abilities are actually implemented, not built out this
+  pass.
+
+**What was done (board widening):** `.board`'s `max-width` raised from
+740px to 900px — explicitly to make room for "new content and upgrades"
+or a more bonus the user mentioned wanting room for, not a response to any
+specific layout bug.
+
+**What was done (animated dice):** went through several visual iterations
+based on direct user feedback before landing on the final version — worth
+recording the rejected ones since they explain why the final shape is what
+it is, not just what it is.
+- Replaced the static "🎲 3 + 4 = 7" board-center text with a real CSS 3D
+  cube per die (`Die3D` in the new `client/src/components/Dice.jsx`): six
+  absolutely-positioned faces (`translateZ` + per-axis `rotate`) forming an
+  actual cube, each showing the classic 6-value pip layout via a 3×3 grid
+  of dots (`DOT_POSITIONS`).
+- **Detecting a genuine new roll required a server-side change.** `lastRoll`
+  alone wasn't a reliable trigger — over the wire, every state broadcast
+  produces a brand-new JSON-deserialized array even when the values are
+  unchanged (e.g. rolling the same double twice in a row), so naive
+  reference/value comparison would either miss real re-rolls or fire on
+  irrelevant unrelated broadcasts. Added `Room.rollSeq` — an integer that
+  increments once per actual `rollDice()` call, included in `toState()`/
+  `toSnapshot()`/`fromSnapshot()` — so the client has an unambiguous
+  "a new roll just happened" signal independent of what the numbers are.
+- **Landing on the correct face after a spin required solving actual cube
+  geometry.** `FACE_ORIENTATION` maps each value 1-6 to the `{x, y}` cube
+  rotation that brings that face to point at the viewer, derived as the
+  inverse of each face's own placement transform (since CSS composes
+  parent-rotation-then-child-placement) — verified by hand for all six
+  faces before wiring it in. Each new roll computes a forward-only delta
+  from the cube's current resting angle to the target, adds 1-2 random
+  full extra spins for flourish, and lets a CSS `transition` (not a
+  keyframe animation) interpolate through every intermediate degree —
+  this only works because the CSS transform spec interpolates matching
+  rotate-function lists component-wise, not via shortest-angular-path, so
+  a `rotateX(900deg)` target genuinely animates through multiple visible
+  spins instead of snapping.
+- **First real bug: the spin never visibly played.** The dice were
+  originally only rendered inside `{lastRoll && (...)}`, which goes `null`
+  -then-truthy every single turn (`endTurn` clears `lastRoll`) — so the
+  `Dice` component fully unmounted and remounted on every turn, and its
+  internal "what was the previous rotation" ref reset right along with it,
+  meaning every roll after the first looked like a fresh mount with no
+  rotation to animate *from*. Fixed by always rendering `Dice` (handling
+  `roll == null` as "show the idle/last-known faces" inside the component
+  instead of unmounting the whole tree from the outside).
+- **Iterated on feel per direct feedback, several times:** spin duration
+  1s → 1.8s → 1.4s; easing fast-start → symmetric ease-in-out (the
+  in-between fast-start version felt "too fast" at the very start of the
+  roll); extra-spin count 2-3 turns → 1-2 (fewer total degrees over the
+  same duration reads as calmer without changing the easing curve again).
+- **Tried and explicitly reverted a "rectangular blue towers" reskin** (a
+  joking reference to Amman's unfinished Abdali towers) — rebuilt the cube
+  as a tall square-footprint box with a lit-window pip pattern on its
+  faces (1/2 on the small square caps, 3-6 on the four walls) per explicit
+  direction, then the user decided after seeing it live that it "wasn't
+  worth it" and asked to go back to the plain cube. Reverted fully —
+  `FACE_ORIENTATION`, face dimensions, and styling all restored to the
+  pre-tower cube state — rather than leaving any tower-specific CSS/JSX
+  half-removed.
+- **Fixed "I can see the board through the cube mid-spin" without a
+  separate backdrop panel**, per explicit instruction not to add one: each
+  die now has a `.die3d-filler` — a small static, identically-styled
+  square sitting directly behind the spinning cube (same color/border, no
+  rotation). It's invisible at rest since it matches the cube's resting
+  face exactly, but plugs the visual gap during a spin when the rotating
+  cube's silhouette is thinner than its own bounding box, without needing
+  a separate panel around the dice.
+- **A later, more deliberate dark backdrop was added and then explicitly
+  relocated**, not removed outright: the user first asked for a `.dice
+  -stage` panel (a separate dark rounded box just around the two dice) to
+  fix the same see-through issue more thoroughly, then said it looked "out
+  of place" floating on the parchment board, then asked to apply that same
+  dark color to the board's own center area instead of a separate floating
+  box. Final state: `.board-center` itself (the inner area holding the
+  "Monoboly عرب" title and the dice) carries the dark inset gradient
+  background directly, with the title's color/shadow adjusted to gold-on
+  -dark for contrast — there's no standalone `.dice-stage` element left in
+  the CSS or JSX.
+- **Per-face shading + a ground-contact shadow (an attempt to make the
+  cube read as a solid volume from any angle) was built, tested live, and
+  then explicitly reverted** alongside a wider idle-tilt change and a
+  reduced random-wobble range — the user's call after seeing it ("still
+  wrong... too tall a task... let's just use the trusty 3d cube") was to
+  go back to the simple uniform-white-face cube with the original tilt/
+  wobble values rather than keep iterating on a more elaborate look.
+
+**Why these calls:**
+- Identity-from-character rather than free-text name entry: this was the
+  user's own explicit design ("they simply enter a code... they choose a
+  card and they become that character"), not something proposed and
+  accepted — implemented exactly as specified rather than offering a
+  hybrid (e.g. keep a name field *and* a character).
+- `rollSeq` as a dedicated counter rather than trying to make `lastRoll`
+  itself a reliable change-signal: the real requirement ("did a new roll
+  just happen," independent of what the numbers are) doesn't have a
+  value-based representation that survives repeated identical rolls
+  (doubles), so the simplest correct fix was a monotonic counter purpose
+  -built for exactly that question.
+- Reverted the tower reskin and the per-face-shading/contact-shadow
+  experiment fully rather than leaving partial remnants: both were
+  explicit "go back" instructions, not requests to blend the old and new
+  — keeping any half-applied CSS from a rejected direction would just be
+  confusing dead styling for the next pass to puzzle over.
+- Backdrop-on-`board-center` rather than a separate panel: matches the
+  user's own stated reasoning ("so it's not out of place") — the fix
+  needed to feel like part of the board's existing design language, not a
+  bolted-on UI element, which a separate floating dark box couldn't
+  achieve no matter how it was styled.
+
+**Known gaps left for later:** character *abilities* are entirely
+unimplemented — `characters.md`'s ability spec (D's toll zone, Z's trade
+/tax skim, Y's seize/demolish, H's territory expansion, SD's station
+toll + attack power, SE's bank bonus + alliance) is still just a design
+doc; this pass only built the picking/identity layer. The flavor-text
+ability descriptions in `client/src/data/characters.js` are explicitly
+placeholder wording the user asked to "write any description for now,
+we'll edit it later" — not the real spec. `PlayerCard.jsx`'s
+`.player-card-tracker` is an intentionally empty div with no content yet,
+reserved for a future cooldown/use-count UI once abilities exist. No
+server-side enforcement exists yet for "exactly one character per player
+once the game starts" beyond the pre-start `selectCharacter` uniqueness
+check — nothing currently stops two players from somehow ending up with
+the same `characterId` if `start()` were ever called with a corrupted
+`characterSelections` map, though there's no code path that could
+actually produce that today. The dice's idle resting angle and per-roll
+extra-spin count are hand-tuned constants (`IDLE_TILT`, the 1-2 spins, the
+±14° random Z-wobble) with no configurability.
+
+**State at end of pass:** all 40 existing server tests still pass
+unchanged (`rollSeq`/character-selection fields are pure additions to
+`toState()`/`toSnapshot()`, nothing existing was restructured). Verified
+live in the browser across this whole pass — both dev servers were kept
+running throughout and every change was checked visually before moving to
+the next request, including several iterations on the dice that were
+explicitly rejected and rolled back based on what was actually seen on
+screen, not just code review.
+
+---
+
 ## Pass 15 — 2026-06-29 — Add a server-side regression test suite
 
 **Goal:** every pass so far had verified its fix with a direct `Room` unit

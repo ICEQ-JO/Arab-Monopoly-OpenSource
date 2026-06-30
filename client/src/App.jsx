@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { socket } from "./socket";
 import { loadSession, saveSession, clearSession } from "./session";
 import Lobby from "./components/Lobby";
+import CharacterSelect from "./components/CharacterSelect";
 import Board from "./components/Board";
 import Hud from "./components/Hud";
+import PlayerCard from "./components/PlayerCard";
 import "./App.css";
 
 function App() {
@@ -83,14 +85,22 @@ function App() {
     return <Lobby onJoined={handleJoined} />;
   }
 
+  if (!state.started) {
+    return <CharacterSelect state={state} myId={myId} onLeave={handleLeave} />;
+  }
+
+  const me = state.players.find((p) => p.id === myId);
+
   return (
     <div className="game-screen">
+      <PlayerCard player={me} />
       <Board
         board={state.board}
         ownership={state.ownership}
         players={state.players}
         pendingAction={state.pendingAction}
         lastRoll={state.lastRoll}
+        rollSeq={state.rollSeq}
       />
       <Hud state={state} myId={myId} onLeave={handleLeave} />
     </div>

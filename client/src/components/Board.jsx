@@ -1,4 +1,5 @@
-import { TILE_ICON, IconDice } from "./icons";
+import { TILE_ICON } from "./icons";
+import Dice from "./Dice";
 
 const BIG_ICON_TYPES = ["start", "holding", "go_to_holding"];
 
@@ -9,7 +10,7 @@ function getGridPos(i) {
   return { row: 1 + (i - 24), col: 9 };
 }
 
-export default function Board({ board, ownership, players, pendingAction, lastRoll }) {
+export default function Board({ board, ownership, players, pendingAction, lastRoll, rollSeq }) {
   return (
     <div className="board">
       {board.map((tile) => {
@@ -54,9 +55,10 @@ export default function Board({ board, ownership, players, pendingAction, lastRo
       })}
       <div className="board-center">
         <h2>Monoboly عرب</h2>
+        <Dice roll={lastRoll} rollSeq={rollSeq} />
         {lastRoll && (
           <p className="board-center-dice">
-            <IconDice /> {lastRoll[0]} + {lastRoll[1]} = {lastRoll[0] + lastRoll[1]}
+            {lastRoll[0]} + {lastRoll[1]} = {lastRoll[0] + lastRoll[1]}
           </p>
         )}
       </div>

@@ -2,15 +2,13 @@ import { useState } from "react";
 import { socket } from "../socket";
 
 export default function Lobby({ onJoined }) {
-  const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   function createRoom() {
-    if (!name.trim()) return setError("Enter a name first");
     setBusy(true);
-    socket.emit("createRoom", { name: name.trim() }, (res) => {
+    socket.emit("createRoom", {}, (res) => {
       setBusy(false);
       if (res?.error) return setError(res.error);
       onJoined(res);
@@ -18,10 +16,9 @@ export default function Lobby({ onJoined }) {
   }
 
   function joinRoom() {
-    if (!name.trim()) return setError("Enter a name first");
     if (!code.trim()) return setError("Enter a room code");
     setBusy(true);
-    socket.emit("joinRoom", { code: code.trim(), name: name.trim() }, (res) => {
+    socket.emit("joinRoom", { code: code.trim() }, (res) => {
       setBusy(false);
       if (res?.error) return setError(res.error);
       onJoined(res);
@@ -34,16 +31,11 @@ export default function Lobby({ onJoined }) {
       <p className="tagline">A property-trading board game for friends, online.</p>
 
       <div className="lobby-card">
-        <label>
-          Your name
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Alex" maxLength={16} />
-        </label>
-
         <button className="primary" disabled={busy} onClick={createRoom}>
           Create new room
         </button>
 
-        <div className="divider">or</div>
+        <div className="divider">or join an existing one</div>
 
         <label>
           Room code

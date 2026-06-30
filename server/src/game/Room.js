@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 import { BOARD, TILE_TYPES, TOTAL_TILES, propertiesByGroup } from "./board.js";
 import { SURPRISE_CARDS, TREASURE_CARDS, shuffledDeck } from "./cards.js";
+import { CHARACTER_IDS, CHARACTER_NAMES } from "./characters.js";
 
 // Exported so the test suite can assert against these by name instead of
 // hardcoding magic numbers that would silently drift out of sync if tuned here.
@@ -41,15 +42,18 @@ export class Room {
     this.auctions = []; // { id, tileId, highestBid, highestBidderId, passedIds }
     this.canRollAgain = true; // false once the current player has used their roll for this turn
     this.consecutiveDoubles = 0; // resets each turn; 3 in a row sends the roller to the Holding Pen
+    this.characterSelections = {}; // playerId -> characterId, set during pre-game lobby
+    this.rollSeq = 0; // increments on every rollDice call so the client can detect a fresh roll even if the numbers repeat
   }
 
-  addPlayer(id, name, token) {
+  addPlayer(id, token) {
     if (this.players.find((p) => p.id === id)) return;
     const color = PLAYER_COLORS[this.players.length % PLAYER_COLORS.length];
+    const seatNum = this.players.length + 1;
     this.players.push({
       id,
       token,
-      name,
+      name: `Seat ${seatNum}`,
       color,
       connected: true,
       graceTimer: null,
@@ -160,7 +164,31 @@ export class Room {
     if (this.log.length > 50) this.log.pop();
   }
 
+  selectCharacter(playerId, characterId) {
+    if (this.started) return { error: "Game already started" };
+    if (!CHARACTER_IDS.includes(characterId)) return { error: "Invalid character" };
+    for (const [pid, cid] of Object.entries(this.characterSelections)) {
+      if (cid === characterId && pid !== playerId) return { error: "Character already taken" };
+    }
+    this.characterSelections[playerId] = characterId;
+    return { ok: true };
+  }
+
+  resetCharacterSelections(playerId) {
+    if (playerId !== this.hostId) return { error: "Not the host" };
+    if (this.started) return { error: "Game already started" };
+    this.characterSelections = {};
+    return { ok: true };
+  }
+
   start() {
+    for (const player of this.players) {
+      const charId = this.characterSelections[player.id];
+      if (charId) {
+        player.characterId = charId;
+        player.name = CHARACTER_NAMES[charId] || player.name;
+      }
+    }
     this.started = true;
     this.canRollAgain = true;
     this.consecutiveDoubles = 0;
@@ -201,6 +229,7 @@ export class Room {
     const d1 = 1 + Math.floor(Math.random() * 6);
     const d2 = 1 + Math.floor(Math.random() * 6);
     this.lastRoll = [d1, d2];
+    this.rollSeq += 1;
     const rolledDoubles = d1 === d2;
     const total = d1 + d2;
     this.pushLog(`${player.name} rolled ${article(total)} ${total}.`);
@@ -900,6 +929,8 @@ export class Room {
       auctions: this.auctions.map(({ timer, ...pub }) => pub),
       canRollAgain: this.canRollAgain,
       board: BOARD,
+      characterSelections: this.characterSelections,
+      rollSeq: this.rollSeq,
     };
   }
 
@@ -925,6 +956,8 @@ export class Room {
       auctions: this.auctions.map(({ timer, ...rest }) => rest),
       canRollAgain: this.canRollAgain,
       consecutiveDoubles: this.consecutiveDoubles,
+      characterSelections: this.characterSelections,
+      rollSeq: this.rollSeq,
     };
   }
 
@@ -956,6 +989,8 @@ export class Room {
     room.auctions = (snapshot.auctions || []).map((a) => ({ ...a, timer: null, deadline: Date.now() + AUCTION_BASE_MS }));
     room.canRollAgain = snapshot.canRollAgain ?? true;
     room.consecutiveDoubles = snapshot.consecutiveDoubles || 0;
+    room.characterSelections = snapshot.characterSelections || {};
+    room.rollSeq = snapshot.rollSeq || 0;
 
     for (const player of room.players) {
       if (!player.connected && !player.left && !player.bankrupt) {
