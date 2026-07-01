@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { socket } from "../socket";
 import { playMoveSwoosh } from "../sfx";
 import Dice from "./Dice";
