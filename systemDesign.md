@@ -24,7 +24,11 @@ display results.
 ## 2. Server (`server/src/`)
 
 ### 2.1 `game/board.js` — static board data
-- Exports `BOARD`: an array of 32 tile objects (index = tile id = board
+- Re-exports the single board (`game/boards/classic-vintage.js`) under the
+  names `Room.js` expects. The project has exactly one map now — earlier
+  passes briefly supported multiple selectable maps via a `getBoard(mapType)`
+  router; that was removed in favor of a single fixed board.
+- Exports `BOARD`: an array of 48 tile objects (index = tile id = board
   position). Each tile has a `type` from `TILE_TYPES` (`start`, `property`,
   `transit`, `utility`, `surprise`, `treasure`, `tax`, `rest`, `holding`,
   `go_to_holding`) plus type-specific fields (`price`, `rent` table, `group`,
@@ -644,9 +648,11 @@ the next remaining active player automatically becomes host.
   portion is an intentionally empty `.player-card-tracker` div — reserved
   for a future per-character ability-cooldown/use-count display once
   abilities are implemented (§6), not built out yet.
-- `components/Board.jsx` — `getGridPos(i)` maps each of the 32 tile indices
-  onto a 9×9 CSS grid perimeter (tiles 0/8/16/24 are the four corners).
-  Purely presentational: reads `board`, `ownership`, `players`,
+- `components/BoardClassic.jsx` — the sole board component (a prior
+  `Board.jsx`, tied to now-deleted maps, was removed). `getGridPos(i)` maps
+  each of the 48 tile indices onto a 9×9 CSS grid perimeter (tiles
+  0/12/24/36 are the four corners). Purely presentational: reads `board`,
+  `ownership`, `players`,
   `pendingAction`, `lastRoll`, `rollSeq` props and renders tiles, ownership
   color strip, house count (or an "M" badge in place of the house count
   when `owned.mortgaged` is true), player tokens, and the board-center

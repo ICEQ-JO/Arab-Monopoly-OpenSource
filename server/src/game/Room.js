@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import { TILE_TYPES, getBoard } from "./board.js";
+import { TILE_TYPES, BOARD, TOTAL_TILES, propertiesByGroup } from "./board.js";
 import { SURPRISE_CARDS, TREASURE_CARDS, shuffledDeck } from "./cards.js";
 import { CHARACTER_IDS, CHARACTER_NAMES } from "./characters.js";
 
@@ -26,20 +26,19 @@ const DEFAULT_RULES = {
   noRentInPrison:    true,
   evenBuild:         true,
   doubleRentFullSet: true,
-  auction:           false,
+  auction:           true,
   startingCash:      1500,
 };
 
 export class Room {
-  constructor(code, hostId, gameMode = "normal", mapType = "fortune-city") {
+  constructor(code, hostId, gameMode = "normal") {
     this.code = code;
     this.hostId = hostId;
     this.gameMode = gameMode;
-    this.mapType = mapType;
-    const boardModule = getBoard(mapType);
-    this._board = boardModule.BOARD;
-    this._totalTiles = boardModule.TOTAL_TILES;
-    this._propertiesByGroup = boardModule.propertiesByGroup;
+    this._board = BOARD;
+    this._totalTiles = TOTAL_TILES;
+    this._propertiesByGroup = propertiesByGroup;
+    this._holdingTileId = BOARD.find((t) => t.type === TILE_TYPES.HOLDING)?.id;
     this.rules = { ...DEFAULT_RULES };
     this.vacationPot = 0;
     this.players = [];
@@ -485,7 +484,7 @@ export class Room {
       this.pushLog(`${player.name} used a free pass to avoid the Holding Pen.`);
       return;
     }
-    player.position = 8; // Holding Pen tile index (a board corner, see board.js)
+    player.position = this._holdingTileId;
     player.inHolding = true;
     player.holdingTurns = 0;
     this.pushLog(`${player.name} was sent to the Holding Pen.`);
@@ -986,7 +985,6 @@ export class Room {
       characterSelections: this.characterSelections,
       rollSeq: this.rollSeq,
       gameMode: this.gameMode,
-      mapType: this.mapType,
       rules: this.rules,
       vacationPot: this.vacationPot,
     };
@@ -1017,7 +1015,6 @@ export class Room {
       characterSelections: this.characterSelections,
       rollSeq: this.rollSeq,
       gameMode: this.gameMode,
-      mapType: this.mapType,
       rules: this.rules,
       vacationPot: this.vacationPot,
     };
@@ -1032,7 +1029,7 @@ export class Room {
   //  - The current player's turn timer is re-armed for a fresh full duration
   //    rather than trying to preserve exactly how much time was left.
   static fromSnapshot(snapshot) {
-    const room = new Room(snapshot.code, snapshot.hostId, snapshot.gameMode || "normal", snapshot.mapType || "fortune-city");
+    const room = new Room(snapshot.code, snapshot.hostId, snapshot.gameMode || "normal");
     if (snapshot.rules) room.rules = { ...DEFAULT_RULES, ...snapshot.rules };
     if (snapshot.vacationPot !== undefined) room.vacationPot = snapshot.vacationPot;
     room.started = snapshot.started;

@@ -3,7 +3,6 @@ import { socket } from "./socket";
 import { loadSession, saveSession, clearSession } from "./session";
 import Lobby from "./components/Lobby";
 import CharacterSelect from "./components/CharacterSelect";
-import Board from "./components/Board";
 import BoardClassic from "./components/BoardClassic";
 import Hud from "./components/Hud";
 import PlayerCard from "./components/PlayerCard";
@@ -254,10 +253,7 @@ function App() {
         : <PlayersPanel state={state} myId={myId} onOpenTrade={() => setTradeOpen(true)} />
       }
 
-      {state.mapType === "classic-vintage"
-        ? <BoardClassic state={state} myId={myId} />
-        : <Board state={state} myId={myId} />
-      }
+      <BoardClassic state={state} myId={myId} />
 
       <Hud state={state} myId={myId} />
 

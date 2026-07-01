@@ -22,14 +22,6 @@ const QUOTES = [
   { text: "لا تُسرف في شيء إلا في طلب العلم", author: "ابن تيمية" },
 ];
 
-const MAPS = [
-  { key: "fortune-city",    label: "مدينة الثروة",  flag: "🇦🇪", sub: "Fortune City"    },
-  { key: "arab-world",      label: "العالم العربي",  flag: "🌙",  sub: "Arab World"      },
-  { key: "worldwide",       label: "Mr. Worldwide",  flag: "🌍",  sub: "Global Cities"   },
-  { key: "arab-empire",     label: "الإمبراطورية",   flag: "⚔️",  sub: "Arab Empire"     },
-  { key: "classic-vintage", label: "مونوبولي عرب",   flag: "🎩",  sub: "Classic Vintage" },
-];
-
 const RULE_DEFS = [
   { key: "vacationPot",        label: "Vacation Cash Pot",      desc: "Taxes & fines fill a pot — landing on Vacation collects it all" },
   { key: "noRentInPrison",     label: "No Rent While in Prison", desc: "Owners in the Holding Pen cannot collect rent" },
@@ -43,14 +35,14 @@ const DEFAULT_RULES = {
   noRentInPrison: true,
   evenBuild: true,
   doubleRentFullSet: true,
-  auction: false,
+  auction: true,
   startingCash: 1500,
 };
 
 const QUOTE_DURATION = 5000;
 const FADE_DURATION  = 500;
 
-// Steps: 'landing' → 'create-mode' → 'create-map' (Normal) → 'create-rules' → done
+// Steps: 'landing' → 'create-mode' → 'create-rules' → done
 //        'landing' → 'join'
 export default function Lobby({ onJoined }) {
   // Quote cycling
@@ -66,7 +58,6 @@ export default function Lobby({ onJoined }) {
 
   // Create-specific
   const [gameMode, setGameMode] = useState("normal");
-  const [mapType,  setMapType]  = useState("fortune-city");
   const [rules,    setRules]    = useState({ ...DEFAULT_RULES });
 
   // Join-specific
@@ -157,7 +148,7 @@ export default function Lobby({ onJoined }) {
     if (!name.trim()) return setError("Enter your name first");
     if (!color)       return setError("Pick a color first");
     setBusy(true);
-    socket.emit("createRoom", { gameMode, mapType, name: name.trim(), color, rules }, (res) => {
+    socket.emit("createRoom", { gameMode, name: name.trim(), color, rules }, (res) => {
       setBusy(false);
       if (res?.error) return setError(res.error);
       onJoined(res);
@@ -315,7 +306,7 @@ export default function Lobby({ onJoined }) {
             <Ornament />
           </div>
           <div className="lobby-form-card visible">
-            <WizardHeader step={1} total={3} title="Choose Game Mode" onBack={() => go("landing")} />
+            <WizardHeader step={1} total={2} title="Choose Game Mode" onBack={() => go("landing")} />
 
             <div className="mode-picker">
               <button
@@ -330,55 +321,14 @@ export default function Lobby({ onJoined }) {
 
             <p className="lobby-mode-desc">
               {gameMode === "normal"
-                ? "Classic property trading — choose your map and rules, then battle it out."
+                ? "Classic property trading — choose your rules, then battle it out."
                 : "Every player picks a unique character with special powers before the game starts."}
             </p>
 
             <button
               className="lobby-btn-primary"
-              onClick={() => go(gameMode === "normal" ? "create-map" : "create-rules")}
+              onClick={() => go("create-rules")}
             >
-              Next →
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Create: Map step (Normal mode only) ──────────────────────
-  if (step === "create-map") {
-    return (
-      <div className="lobby">
-        <LobbyBackground />
-        <SoundToggle muted={muted} onToggle={toggleSound} />
-        <Credits />
-        <div className="lobby-content">
-          <div className="lobby-title-float">
-            <Ornament />
-            <h1 className="lobby-game-title">Monoboly عرب</h1>
-            <Ornament />
-          </div>
-          <div className="lobby-form-card visible" style={{ width: 480 }}>
-            <WizardHeader step={2} total={3} title="Choose Map" onBack={() => go("create-mode")} />
-
-            <div className="map-grid">
-              {MAPS.map((m) => (
-                <button
-                  key={m.key}
-                  className={`map-card${mapType === m.key ? " active" : ""}`}
-                  onClick={() => setMapType(m.key)}
-                >
-                  <div className="map-card-flag-circle">
-                    <span>{m.flag}</span>
-                  </div>
-                  <span className="map-card-label">{m.label}</span>
-                  <span className="map-card-sub">{m.sub}</span>
-                </button>
-              ))}
-            </div>
-
-            <button className="lobby-btn-primary" onClick={() => go("create-rules")}>
               Next →
             </button>
           </div>
@@ -402,10 +352,10 @@ export default function Lobby({ onJoined }) {
           </div>
           <div className="lobby-form-card visible">
             <WizardHeader
-              step={gameMode === "normal" ? 3 : 2}
-              total={gameMode === "normal" ? 3 : 2}
+              step={2}
+              total={2}
               title="Game Rules"
-              onBack={() => go(gameMode === "normal" ? "create-map" : "create-mode")}
+              onBack={() => go("create-mode")}
             />
 
             <div className="rules-panel-body" style={{ border: "1px solid rgba(201,150,10,0.2)", borderRadius: 10, overflow: "hidden" }}>

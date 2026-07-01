@@ -5,13 +5,11 @@ import { makeRoom, cleanup, withDice } from "./helpers.js";
 test("rolling again without doubles is rejected", () => {
   const room = makeRoom();
   after(() => cleanup(room));
-  room.players[0].position = 12;
 
-  // From tile 12, (1,2) lands on tile 15 (Toll Gate, a fixed-amount tax tile)
-  // -- no buy prompt or random card draw that could otherwise set a
-  // pendingAction and mask the "already rolled" rejection behind a different
-  // error.
-  withDice([[1, 2]], () => room.rollDice("p0"));
+  // From tile 0, (1,3) lands on tile 4 (a fixed-amount tax tile) -- no buy
+  // prompt or random card draw that could otherwise set a pendingAction and
+  // mask the "already rolled" rejection behind a different error.
+  withDice([[1, 3]], () => room.rollDice("p0"));
   const second = room.rollDice("p0");
 
   assert.equal(second.error, "You already rolled this turn");
@@ -21,15 +19,15 @@ test("doubles in free play grants exactly one bonus roll", () => {
   const room = makeRoom();
   after(() => cleanup(room));
 
-  // (4,4) from tile 0 lands on tile 8 (the Holding Pen tile itself -- a safe
-  // rest stop when landed on directly, not the go_to_holding tile). No buy
+  // (2,2) from tile 0 lands on tile 4 (a fixed-amount tax tile) -- no buy
   // prompt or random card draw to keep the next roll deterministic.
-  const first = withDice([[4, 4]], () => room.rollDice("p0"));
+  const first = withDice([[2, 2]], () => room.rollDice("p0"));
   assert.equal(first.doubles, true);
   assert.equal(room.canRollAgain, true);
 
-  // (3,4) from tile 8 lands on tile 15 (Toll Gate, also safe/deterministic).
-  const second = withDice([[3, 4]], () => room.rollDice("p0"));
+  // (3,5) from tile 4 lands on tile 12 (the Holding Pen tile itself -- a
+  // safe rest stop when landed on directly, not the go-to-holding tile).
+  const second = withDice([[3, 5]], () => room.rollDice("p0"));
   assert.equal(second.error, undefined);
   assert.equal(room.canRollAgain, false);
 
@@ -42,25 +40,26 @@ test("three consecutive doubles sends the player to the Holding Pen without movi
   after(() => cleanup(room));
   const alice = room.players[0];
 
-  // (4,4) from tile 0 -> tile 8 (Holding Pen tile, safe/deterministic when
+  // (6,6) from tile 0 -> tile 12 (Holding Pen tile, safe/deterministic when
   // landed on directly).
-  withDice([[4, 4]], () => room.rollDice("p0"));
+  withDice([[6, 6]], () => room.rollDice("p0"));
   assert.equal(alice.inHolding, false);
   assert.equal(room.canRollAgain, true, "first double earns the normal bonus roll");
   const positionAfterFirst = alice.position;
 
-  // (4,4) from tile 8 -> tile 16 (Garden Rest, also safe/deterministic).
-  withDice([[4, 4]], () => room.rollDice("p0"));
+  // (5,5) from tile 12 -> tile 22 (a fixed-amount tax tile, also
+  // safe/deterministic).
+  withDice([[5, 5]], () => room.rollDice("p0"));
   assert.equal(alice.inHolding, false);
   assert.equal(room.canRollAgain, true, "second double also earns a bonus roll -- the cap is 3, not 2");
   const positionAfterSecond = alice.position;
   assert.notEqual(positionAfterSecond, positionAfterFirst);
 
-  const third = withDice([[5, 5]], () => room.rollDice("p0"));
+  const third = withDice([[3, 3]], () => room.rollDice("p0"));
 
   assert.equal(third.sentToHoldingForSpeeding, true);
   assert.equal(alice.inHolding, true);
-  assert.equal(alice.position, 8, "teleported straight to the Holding Pen tile, not moved by the third roll");
+  assert.equal(alice.position, 12, "teleported straight to the Holding Pen tile, not moved by the third roll");
   assert.equal(room.canRollAgain, false, "no bonus roll for the third double, since it caught them instead");
 });
 
@@ -86,7 +85,7 @@ test("landing on the Holding Pen via a bonus-double move voids that bonus roll (
   const room = makeRoom();
   after(() => cleanup(room));
   const alice = room.players[0];
-  alice.position = 22; // tile 24 ("Send to Holding") is 2 tiles away
+  alice.position = 34; // tile 36 ("Send to Holding") is 2 tiles away
 
   const res = withDice([[1, 1]], () => room.rollDice("p0"));
 

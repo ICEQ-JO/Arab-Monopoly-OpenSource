@@ -69,7 +69,7 @@ Firefox) to test multiple players on one machine.
 - Persistent rooms — survive a server restart (`server/data/rooms.json`)
 - Disconnect grace window (20s to reconnect before losing your seat) and a
   hard 4-minute per-turn timer, both server-enforced
-- 32-tile board with 8 color groups, transit stops, utilities, taxes
+- 48-tile board (single fixed map, "Classic Vintage") with 9 color groups, transit stops, taxes
 - Turn flow: roll dice, move, auto-resolve tile (buy prompt, rent, tax,
   cards); doubles grant a bonus roll, three doubles in a row sends you to
   the Holding Pen
