@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { socket } from "../socket";
-import { CHARACTERS } from "../data/characters";
 
 export default function PlayersPanel({ state, myId, onOpenTrade, onLeave }) {
   const { players, roomCode, hostId, started, log = [], winnerId } = state;
@@ -63,15 +62,9 @@ export default function PlayersPanel({ state, myId, onOpenTrade, onLeave }) {
               key={p.id}
               className={`panel-player-row${isCurrent ? " current-turn" : ""}${p.bankrupt ? " bankrupt" : ""}${p.left ? " left" : ""}`}
             >
-              {p.characterId ? (
-                <span className="panel-player-avatar" style={{ borderColor: p.color }}>
-                  <img src={CHARACTERS.find((c) => c.id === p.characterId)?.img} alt={p.name} />
-                </span>
-              ) : (
-                <span className="panel-player-dot" style={{ background: p.color }}>
-                  {p.name.charAt(0).toUpperCase()}
-                </span>
-              )}
+              <span className="panel-player-dot" style={{ background: p.color }}>
+                {p.name.charAt(0).toUpperCase()}
+              </span>
               <div className="panel-player-info">
                 <span className="panel-player-name">
                   {p.name}{isMe ? " (you)" : ""}
