@@ -639,39 +639,7 @@
 .rule-cash-input:focus { border-color: var(--accent); }
 .rule-cash-input:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* ── COLOR PICKER (waiting room + character select) ──────── */
-
-.lobby-color-picker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
-}
-
-.lobby-color-swatch {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 2px solid rgba(0,0,0,0.25);
-  cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
-  outline: none;
-  padding: 0;
-  background-clip: padding-box;
-}
-
-.lobby-color-swatch:hover { transform: scale(1.18); }
-.lobby-color-swatch.selected {
-  border-color: var(--border);
-  box-shadow: 0 0 0 2px var(--accent), 0 0 8px rgba(201,150,10,0.5);
-  transform: scale(1.2);
-}
-.lobby-color-swatch.taken {
-  cursor: not-allowed;
-  opacity: 0.3;
-  filter: grayscale(0.6);
-}
-.lobby-color-swatch.taken:hover { transform: none; }
+/* ── ICON PICKER (waiting room) ──────────────────────────── */
 
 .lobby-icon-picker {
   display: flex;
