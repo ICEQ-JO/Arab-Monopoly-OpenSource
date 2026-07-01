@@ -3,6 +3,50 @@ import { socket } from "../socket";
 import Dice from "./Dice";
 import "../classicVintage.css";
 
+function TreasureIcon() {
+  return (
+    <svg className="cv2-tile-icon" viewBox="0 0 100 84" xmlns="http://www.w3.org/2000/svg">
+      <rect x="8" y="44" width="84" height="34" rx="9" fill="#f59e0b"/>
+      <rect x="8" y="44" width="84" height="16" rx="9" fill="#b45309" opacity="0.3"/>
+      <path d="M8 46 C8 18 22 6 50 6 C78 6 92 18 92 46 Z" fill="#f59e0b"/>
+      <path d="M15 46 C15 24 26 16 50 16 C74 16 85 24 85 46 Z" fill="#78350f" opacity="0.28"/>
+      <rect x="8" y="40" width="84" height="14" rx="4" fill="#b45309"/>
+      <rect x="34" y="32" width="32" height="30" rx="8" fill="#fbbf24" stroke="#d97706" strokeWidth="2"/>
+      <circle cx="50" cy="44" r="7" fill="#3d1a00"/>
+      <rect x="46.5" y="48" width="7" height="9" rx="2" fill="#3d1a00"/>
+      <path d="M16 16 Q36 8 54 13" stroke="rgba(255,255,255,0.55)" strokeWidth="3.5" fill="none" strokeLinecap="round"/>
+      <path d="M18 24 Q32 18 44 21" stroke="rgba(255,255,255,0.28)" strokeWidth="2" fill="none" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+function TaxIcon() {
+  return <img src="/pig.svg" className="cv2-tile-icon" alt="" />;
+}
+
+function SurpriseIcon() {
+  return (
+    <svg className="cv2-tile-icon" viewBox="0 0 60 80" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="qmarkGrad" x1="0.2" y1="0" x2="0.3" y2="1">
+          <stop offset="0%" stopColor="#ff9ee0"/>
+          <stop offset="45%" stopColor="#f046a8"/>
+          <stop offset="100%" stopColor="#b5126e"/>
+        </linearGradient>
+      </defs>
+      <text
+        x="50%" y="62%"
+        dominantBaseline="middle"
+        textAnchor="middle"
+        fontSize="82"
+        fontWeight="900"
+        fill="url(#qmarkGrad)"
+        fontFamily="Georgia, serif"
+      >?</text>
+    </svg>
+  );
+}
+
 // Generic square-loop layout: corners sit every `sideLen` ids (0, sideLen,
 // 2*sideLen, 3*sideLen), ids increase clockwise from the top-left corner.
 // For the 48-tile classic-vintage board, sideLen = 12, grid = 13x13.
@@ -23,8 +67,11 @@ function getLayout(id, sideLen) {
 }
 
 function ClassicTile({ tile, owned, players, pendingTileId, sideLen }) {
-  const { id, name, price, amount, groupColor } = tile;
+  const { id, name, price, amount, groupColor, type } = tile;
   const { edge, row, col } = getLayout(id, sideLen);
+  const hasIcon = type === "treasure" || type === "surprise" || type === "tax" || type === "transit" || type === "rest";
+  const isLRSide = edge === "left" || edge === "right";
+  const nameParts = name.split(" ");
   const isCorner = edge === "corner";
   const ownerColor = owned?.ownerId
     ? players.find((p) => p.id === owned.ownerId)?.color
@@ -41,7 +88,7 @@ function ClassicTile({ tile, owned, players, pendingTileId, sideLen }) {
 
   return (
     <div
-      className={`cv2-tile ${isCorner ? "cv2-corner" : `cv2-side-${edge}`}${isPending ? " cv2-pending" : ""}`}
+      className={`cv2-tile ${isCorner ? "cv2-corner" : `cv2-side-${edge}`}${type === "transit" ? " cv2-transit" : ""}${type === "rest" ? " cv2-rest" : ""}${isPending ? " cv2-pending" : ""}`}
       style={{ gridRow: row, gridColumn: col }}
     >
       {!isCorner && groupColor && <div className="cv2-band" style={{ background: groupColor }} />}
@@ -52,8 +99,27 @@ function ClassicTile({ tile, owned, players, pendingTileId, sideLen }) {
         </div>
       )}
 
-      <div className="cv2-body">
-        <span className="cv2-name">{name}</span>
+      <div className={`cv2-body${hasIcon ? " cv2-body--icon" : ""}`}>
+        {type === "transit" ? (
+          <div className="cv2-transit-layout">
+            <span className="cv2-transit-name">{nameParts[0]}</span>
+            <img src="/bus.svg" className="cv2-bus-icon" alt="" />
+            <span className="cv2-transit-name">{nameParts.slice(1).join(" ")}</span>
+          </div>
+        ) : hasIcon ? (
+          <div className="cv2-icon-center">
+            <span className="cv2-special-name">
+              {isLRSide && name.includes(" ")
+                ? name.split(" ").map((word, i) => (
+                    <span key={i} style={{ display: "block", textAlign: "center" }}>{word}</span>
+                  ))
+                : name}
+            </span>
+            {type === "treasure" ? <TreasureIcon /> : type === "surprise" ? <SurpriseIcon /> : type === "tax" ? <TaxIcon /> : <img src="/regeneration.svg" className="cv2-tile-icon" alt="" />}
+          </div>
+        ) : (
+          <span className="cv2-name">{name}</span>
+        )}
       </div>
 
       {devLabel && <div className="cv2-dev">{devLabel}</div>}
