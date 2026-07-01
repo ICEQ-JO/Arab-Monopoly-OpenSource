@@ -673,6 +673,37 @@
 }
 .lobby-color-swatch.taken:hover { transform: none; }
 
+.lobby-icon-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.lobby-icon-swatch {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid var(--border-light);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+  outline: none;
+  padding: 0;
+  overflow: hidden;
+  background: var(--panel-2);
+}
+.lobby-icon-swatch img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.lobby-icon-swatch:hover { transform: scale(1.12); }
+.lobby-icon-swatch.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent), 0 0 8px rgba(201,150,10,0.5);
+  transform: scale(1.15);
+}
+
 .error { color: var(--danger); font-size: 13px; font-weight: 700; }
 
 .game-screen {

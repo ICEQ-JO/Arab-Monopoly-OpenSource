@@ -151,6 +151,14 @@ io.on("connection", (socket) => {
     cb?.(result);
   });
 
+  socket.on("setIcon", ({ iconId }, cb) => {
+    const room = getRoom(socket);
+    if (!room) return cb?.({ error: "Room not found" });
+    const result = room.setPlayerIcon(getPlayerId(socket), iconId);
+    if (result.ok) broadcastState(room.code);
+    cb?.(result);
+  });
+
   socket.on("rollDice", () => {
     const room = getRoom(socket);
     if (!room) return;

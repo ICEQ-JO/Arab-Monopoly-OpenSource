@@ -318,6 +318,15 @@
   box-shadow: 0 3px 4px rgba(0, 0, 0, 0.4);
 }
 
+/* Icon variant: player picked one of the flat nationality icons instead of
+   the default drawn face -- same circular frame, image fills it instead of
+   a flat color + eyes/mouth. */
+.cv2-token-face--icon {
+  background-color: var(--panel, #f3e8c9);
+  background-size: cover;
+  background-position: center;
+}
+
 .cv2-token-eye {
   position: absolute;
   top: 27%;

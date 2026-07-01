@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 import { TILE_TYPES, BOARD, TOTAL_TILES, propertiesByGroup } from "./board.js";
 import { SURPRISE_CARDS, TREASURE_CARDS, shuffledDeck } from "./cards.js";
+import { ICON_IDS } from "./icons.js";
 
 // Exported so the test suite can assert against these by name instead of
 // hardcoding magic numbers that would silently drift out of sync if tuned here.
@@ -93,6 +94,7 @@ export class Room {
       bankrupt: false,
       left: false,
       properties: [],
+      icon: null,
     });
   }
 
@@ -202,6 +204,17 @@ export class Room {
     const taken = this.players.some((p) => p.id !== playerId && !p.left && p.color === color);
     if (taken) return { error: "Color already taken" };
     player.color = color;
+    return { ok: true };
+  }
+
+  // Icon is purely cosmetic (the on-board token image) -- unlike color,
+  // multiple players may share the same icon.
+  setPlayerIcon(playerId, iconId) {
+    const player = this.playerById(playerId);
+    if (!player) return { error: "Not in this room" };
+    if (this.started) return { error: "Game already started" };
+    if (!ICON_IDS.includes(iconId)) return { error: "Invalid icon" };
+    player.icon = iconId;
     return { ok: true };
   }
 

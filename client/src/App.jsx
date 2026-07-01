@@ -9,6 +9,7 @@ import PlayersPanel from "./components/PlayersPanel";
 import TradeModal from "./components/TradeModal";
 import RulesPanel from "./components/RulesPanel";
 import ColorPicker from "./components/ColorPicker";
+import IconPicker from "./components/IconPicker";
 import ThemeToggle from "./components/ThemeToggle";
 import "./App.css";
 
@@ -160,6 +161,12 @@ function App() {
             <div className="lobby-input-group">
               <label className="lobby-input-label">Your Color</label>
               <ColorPicker players={state.players} myId={myId} />
+            </div>
+
+            {/* Your token icon */}
+            <div className="lobby-input-group">
+              <label className="lobby-input-label">Your Icon</label>
+              <IconPicker players={state.players} myId={myId} />
             </div>
 
             {/* Game rules panel */}
