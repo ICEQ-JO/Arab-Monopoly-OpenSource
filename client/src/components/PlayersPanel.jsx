@@ -1,5 +1,24 @@
+import { useEffect, useState } from "react";
 import { socket } from "../socket";
 import ThemeToggle from "./ThemeToggle";
+import { IconClock } from "./icons";
+
+function TurnCountdown({ deadline }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+  if (!deadline) return null;
+  const secondsLeft = Math.max(0, Math.round((deadline - now) / 1000));
+  const mins = Math.floor(secondsLeft / 60);
+  const secs = String(secondsLeft % 60).padStart(2, "0");
+  return (
+    <span className={`panel-turn-countdown${secondsLeft <= 30 ? " urgent" : ""}`}>
+      <IconClock /> {mins}:{secs}
+    </span>
+  );
+}
 
 export default function PlayersPanel({ state, myId, onOpenTrade, onLeave, theme, onToggleTheme }) {
   const { players, roomCode, hostId, started, winnerId } = state;
@@ -81,6 +100,7 @@ export default function PlayersPanel({ state, myId, onOpenTrade, onLeave, theme,
                   {p.balance < 0 && <span className="panel-badge badge-debt">in debt</span>}
                 </div>
               </div>
+              {isCurrent && <TurnCountdown deadline={state.turnDeadline} />}
               <span className={`panel-player-balance${p.balance < 0 ? " negative" : ""}`}>
                 ${p.balance}
               </span>

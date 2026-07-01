@@ -4,11 +4,11 @@ import { loadSession, saveSession, clearSession } from "./session";
 import { getStoredTheme, applyTheme } from "./theme";
 import Lobby from "./components/Lobby";
 import BoardClassic from "./components/BoardClassic";
-import Hud from "./components/Hud";
 import PlayersPanel from "./components/PlayersPanel";
 import MyProperties from "./components/MyProperties";
 import OpenTrades from "./components/OpenTrades";
 import TradeModal from "./components/TradeModal";
+import AuctionModal from "./components/AuctionModal";
 import RulesPanel from "./components/RulesPanel";
 import IconPicker from "./components/IconPicker";
 import ThemeToggle from "./components/ThemeToggle";
@@ -222,7 +222,6 @@ function App() {
   return (
     <div className="game-screen">
       <div className="game-screen-left">
-        <Hud state={state} myId={myId} />
         <MyProperties state={state} myId={myId} />
       </div>
 
@@ -243,6 +242,7 @@ function App() {
       {tradeOpen && state.started && (
         <TradeModal state={state} myId={myId} onClose={() => setTradeOpen(false)} />
       )}
+      <AuctionModal state={state} myId={myId} />
     </div>
   );
 }

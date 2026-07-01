@@ -679,6 +679,13 @@
   margin: 0;
 }
 
+.cv2-debt-warning {
+  color: #a3291f;
+  font-size: clamp(10px, 1.1vw, 12px);
+  text-align: center;
+  max-width: 320px;
+}
+
 .cv2-players {
   display: flex;
   flex-direction: column;

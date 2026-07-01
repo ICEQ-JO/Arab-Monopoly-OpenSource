@@ -69,17 +69,26 @@ function AuctionCard({ auction, board, players, myId }) {
   );
 }
 
-export default function Auction({ state, myId }) {
+// Auto-opening overlay (no manual open/close, unlike TradeModal) -- mounted
+// unconditionally in App.jsx and self-gates on whether any auction is live,
+// since there's no "close" while one is active for you to bid or pass on.
+export default function AuctionModal({ state, myId }) {
   const { auctions, board, players } = state;
   if (!auctions || auctions.length === 0) return null;
 
   return (
-    <div className="hud-section">
-      <h3>Auctions</h3>
-      <div className="trade-list">
-        {auctions.map((a) => (
-          <AuctionCard key={a.id} auction={a} board={board} players={players} myId={myId} />
-        ))}
+    <div className="trade-modal-overlay">
+      <div className="trade-modal">
+        <div className="trade-modal-header">
+          <h2>Auctions</h2>
+        </div>
+        <div className="trade-modal-body">
+          <div className="trade-list">
+            {auctions.map((a) => (
+              <AuctionCard key={a.id} auction={a} board={board} players={players} myId={myId} />
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

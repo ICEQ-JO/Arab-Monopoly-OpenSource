@@ -464,7 +464,8 @@ export default function BoardClassic({ state, myId }) {
             {(() => {
               const isMyTurn = players[turnIndex]?.id === myId;
               const pending = state.pendingAction;
-              // Buy/Decline takes priority over Roll/End Turn -- it's the
+              const me = players.find((p) => p.id === myId);
+              // Buy/Decline takes priority over everything else -- it's the
               // action blocking the turn whenever it's pending.
               if (isMyTurn && pending?.type === "awaitBuy") {
                 return (
@@ -475,6 +476,31 @@ export default function BoardClassic({ state, myId }) {
                     <button className="cv2-roll-btn cv2-decline-btn" onClick={() => socket.emit("declineBuy")}>
                       Decline
                     </button>
+                  </div>
+                );
+              }
+              // A drawn card that moves the player somewhere must be
+              // acknowledged before anything else can happen this turn.
+              if (isMyTurn && pending?.type === "awaitCardMove") {
+                return (
+                  <button className="cv2-roll-btn" onClick={() => socket.emit("confirmCardMove")}>
+                    Continue
+                  </button>
+                );
+              }
+              // Stuck in the Holding Pen at the start of the turn (before
+              // rolling): pay out or use a free card instead of rolling.
+              if (isMyTurn && !pending && me?.inHolding && !state.lastRoll) {
+                return (
+                  <div className="cv2-action-row">
+                    <button className="cv2-roll-btn" onClick={() => socket.emit("payToLeaveHolding")}>
+                      Pay $50
+                    </button>
+                    {me.holdingFreeCard && (
+                      <button className="cv2-roll-btn cv2-decline-btn" onClick={() => socket.emit("useHoldingFreeCard")}>
+                        Use Free Card
+                      </button>
+                    )}
                   </div>
                 );
               }
@@ -500,6 +526,19 @@ export default function BoardClassic({ state, myId }) {
               if (!isMyTurn) {
                 const current = players[turnIndex];
                 return <p className="cv2-turn-status">Waiting for {current?.name}…</p>;
+              }
+              return null;
+            })()}
+            {(() => {
+              const isMyTurn = players[turnIndex]?.id === myId;
+              const pending = state.pendingAction;
+              const me = players.find((p) => p.id === myId);
+              if (isMyTurn && !pending && me?.balance < 0) {
+                return (
+                  <p className="cv2-turn-status cv2-debt-warning">
+                    You're ${Math.abs(me.balance)} in debt — mortgage or trade before ending your turn.
+                  </p>
+                );
               }
               return null;
             })()}

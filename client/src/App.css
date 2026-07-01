@@ -720,10 +720,11 @@
 .error { color: var(--danger); font-size: 13px; font-weight: 700; }
 
 .game-screen {
+  --gs-gap: 12px;
   display: grid;
   grid-template-columns: minmax(280px, 340px) 1fr minmax(220px, 260px);
   grid-template-rows: minmax(0, 1fr);
-  gap: 12px;
+  gap: var(--gs-gap);
   padding: 14px;
   height: 100vh;
   box-sizing: border-box;
@@ -1238,21 +1239,6 @@
 .my-properties-card .pcard-detail-mortgaged-stamp { font-size: 12px; padding: 2px 8px; }
 .my-properties-card .pcard-detail-error { font-size: 9px; }
 
-.hud {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  flex-shrink: 0;
-}
-
-.hud-section {
-  background: var(--panel);
-  border: 3px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 4px 4px 0 var(--border);
-  padding: 16px;
-}
-
 .room-header {
   display: flex;
   align-items: center;
@@ -1290,52 +1276,10 @@
   font-size: 13px;
 }
 
-.debt-warning {
-  color: var(--danger);
-  font-weight: 700;
-}
-
-.dice-display {
-  font-size: 22px;
-  margin: 8px 0;
-  font-weight: 700;
-}
-
-.card-display {
-  background: var(--panel-2);
-  border: 2px solid var(--border-light);
-  border-radius: 6px;
-  padding: 8px;
-  font-size: 13px;
-}
-
 .action-row {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.buy-prompt {
-  background: var(--panel-2);
-  border: 2px solid var(--border-light);
-  border-radius: 6px;
-  padding: 10px;
-  margin-top: 8px;
-}
-
-.tile-info-panel p {
-  margin: 4px 0;
-  font-size: 13px;
-}
-
-.tile-info-header {
-  border-bottom: 3px solid var(--border-light);
-  padding-bottom: 6px;
-  margin-bottom: 6px;
-}
-
-.tile-info-header strong {
-  font-size: 15px;
 }
 
 .build-panel {
@@ -1502,15 +1446,17 @@
   overflow-y: auto;
 }
 
-/* ── LEFT PLAYERS PANEL ──────────────────────────────────── */
+/* ── LEFT PANEL (My Properties only, flush against the board) ── */
 
 .game-screen-left {
   display: flex;
   flex-direction: column;
-  gap: 10px;
   min-height: 0;
   height: 100%;
   overflow: hidden;
+  /* Pulls flush against the board across the grid gutter -- the gap to the
+     right panel is untouched, only this side closes to ~0. */
+  margin-right: calc(-1 * var(--gs-gap));
 }
 
 .players-panel-room {
@@ -1928,6 +1874,9 @@ select {
     height: auto;
     overflow: visible;
   }
+  .game-screen-left {
+    margin-right: 0;
+  }
 }
 
 /* ══ PLAYERS PANEL (right sidebar) — REDESIGN ════════════════ */
@@ -2283,6 +2232,18 @@ select {
 .badge-dc       { background: #3498db;   color: #fff; }
 .badge-debt     { background: #c0392b;  color: #fff; }
 
+.panel-turn-countdown {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.panel-turn-countdown svg { width: 11px; height: 11px; }
+.panel-turn-countdown.urgent { color: var(--danger); }
+
 .panel-player-balance {
   font-size: 13.5px;
   font-weight: 700;
@@ -2298,88 +2259,6 @@ select {
   color: #ff8888;
   background: rgba(192,57,43,0.25);
   border-color: rgba(192,57,43,0.4);
-}
-
-/* ══ HUD REDESIGN ════════════════════════════════════════════ */
-
-/* Roll Dice button — large and gold-prominent */
-.hud .action-row {
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.hud .action-row button.primary {
-  flex: 1;
-  padding: 14px 20px;
-  font-size: 15px;
-  letter-spacing: 2px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #d4a20b 0%, #f0c030 50%, #b8860b 100%);
-  color: #2a1d00;
-  border: 3px solid #8a6200;
-  box-shadow: 4px 4px 0 #5a4000, 0 4px 16px rgba(200,140,0,0.4);
-  text-transform: uppercase;
-  font-weight: 900;
-}
-.hud .action-row button.primary:hover {
-  filter: brightness(1.08);
-  box-shadow: 5px 5px 0 #5a4000, 0 6px 20px rgba(200,140,0,0.5);
-}
-.hud .action-row button.primary:active {
-  transform: translate(3px, 3px);
-  box-shadow: 1px 1px 0 #5a4000;
-}
-
-.hud .action-row button:not(.primary) {
-  flex: 0 0 auto;
-  padding: 14px 18px;
-  font-size: 13px;
-  border-radius: 8px;
-}
-
-/* Build panel within HUD */
-.hud .build-panel {
-  border: 2.5px solid var(--border);
-  border-radius: 7px;
-  padding: 0;
-  overflow: hidden;
-  background: var(--panel);
-}
-
-.hud .build-panel summary {
-  padding: 10px 14px;
-  background: var(--panel-2);
-  border-bottom: 2px solid var(--border);
-  font-size: 11px;
-  list-style: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  user-select: none;
-}
-.hud .build-panel summary::before { content: "▶"; font-size: 8px; }
-.hud .build-panel[open] summary::before { content: "▼"; }
-
-.hud .build-row {
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--border-light);
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.hud .build-row:last-child { border-bottom: none; }
-
-.hud .build-row-name {
-  font-size: 12px;
-  color: var(--text);
-}
-
-.hud .build-btn {
-  font-size: 10px;
-  padding: 5px 10px;
-  border-radius: 5px;
-  width: auto;
-  margin-top: 0;
 }
 
 /* ══ LOBBY WIZARD ADDITIONS ══════════════════════════════════ */
