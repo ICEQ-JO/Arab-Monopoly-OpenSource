@@ -147,6 +147,14 @@ io.on("connection", (socket) => {
     cb?.(result);
   });
 
+  socket.on("setColor", ({ color }, cb) => {
+    const room = getRoom(socket);
+    if (!room) return cb?.({ error: "Room not found" });
+    const result = room.setPlayerColor(getPlayerId(socket), color);
+    if (result.ok) broadcastState(room.code);
+    cb?.(result);
+  });
+
   socket.on("selectCharacter", ({ characterId }, cb) => {
     const room = getRoom(socket);
     if (!room) return cb?.({ error: "Room not found" });

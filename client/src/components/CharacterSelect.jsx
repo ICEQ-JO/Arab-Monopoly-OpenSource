@@ -1,6 +1,8 @@
 import { socket } from "../socket";
 import { CHARACTERS } from "../data/characters";
 import CharacterCard from "./CharacterCard";
+import ColorPicker from "./ColorPicker";
+import RulesPanel from "./RulesPanel";
 
 export default function CharacterSelect({ state, myId, onLeave }) {
   const me = state.players.find((p) => p.id === myId);
@@ -51,6 +53,14 @@ export default function CharacterSelect({ state, myId, onLeave }) {
             </div>
           );
         })}
+      </div>
+
+      <div className="char-select-settings">
+        <div className="lobby-input-group">
+          <label className="lobby-input-label">Your Color</label>
+          <ColorPicker players={state.players} myId={myId} />
+        </div>
+        <RulesPanel rules={state.rules || {}} isHost={isHost} />
       </div>
 
       <h2 className="char-select-subtitle">Choose your character</h2>

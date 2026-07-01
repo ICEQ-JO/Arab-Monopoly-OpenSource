@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { CHARACTERS } from "../data/characters";
 
-export default function PlayerCard({ player }) {
+export default function PlayerCard({ player, onLeave }) {
   const [flipped, setFlipped] = useState(false);
   if (!player) return null;
   const char = CHARACTERS.find((c) => c.id === player.characterId);
@@ -16,6 +16,12 @@ export default function PlayerCard({ player }) {
     >
       <div className="player-card-inner">
         <div className="player-card-front">
+          <button
+            className="player-card-leave-btn"
+            onClick={(e) => { e.stopPropagation(); onLeave?.(); }}
+          >
+            Leave
+          </button>
           <div className="player-card-portrait">
             <img src={imgSrc} alt={char.name} />
           </div>
