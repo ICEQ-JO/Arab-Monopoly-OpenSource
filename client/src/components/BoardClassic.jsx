@@ -209,6 +209,10 @@ export default function BoardClassic({ state, myId }) {
                   </button>
                 );
               }
+              if (!isMyTurn) {
+                const current = players[turnIndex];
+                return <p className="cv2-turn-status">Waiting for {current?.name}…</p>;
+              }
               return null;
             })()}
           </div>

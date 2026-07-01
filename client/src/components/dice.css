@@ -2,70 +2,78 @@
    3D Dice — self-contained styles for Dice.jsx
    ============================================================ */
 
-.dice-row {
+.d3-row {
+  --die-size: clamp(42px, 7vw, 64px);
   display: flex;
-  gap: 22px;
+  gap: clamp(16px, 3vw, 28px);
+  perspective: 700px;
+  padding-top: 4px;
+  padding-bottom: calc(var(--die-size) * 0.35);
 }
 
-.die3d {
-  position: relative;
-  width: 56px;
-  height: 56px;
-  perspective: 400px;
-}
-
-.die3d-filler {
-  position: absolute;
-  inset: 0;
-  background: #fdfaf0;
-  border: 2.5px solid var(--border, #1d1610);
-  border-radius: 9px;
-}
-
-.die3d-cube {
-  position: relative;
-  width: 100%;
-  height: 100%;
+.d3-wrap {
+  width: var(--die-size);
+  height: var(--die-size);
   transform-style: preserve-3d;
-  transition: transform 1.4s cubic-bezier(0.42, 0, 0.58, 1);
+  position: relative;
 }
 
-.die3d-face {
+.d3-shadow {
   position: absolute;
-  inset: 0;
-  background: #fdfaf0;
-  border: 2.5px solid var(--border, #1d1610);
-  border-radius: 9px;
-  backface-visibility: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  left: 50%;
+  bottom: calc(var(--die-size) * -0.14);
+  width: calc(var(--die-size) * 0.8);
+  height: calc(var(--die-size) * 0.17);
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  filter: blur(4px);
+  transition: opacity 0.55s ease, transform 0.55s ease;
 }
 
-.die3d-front  { transform: translateZ(28px); }
-.die3d-back   { transform: rotateY(180deg)  translateZ(28px); }
-.die3d-right  { transform: rotateY(90deg)   translateZ(28px); }
-.die3d-left   { transform: rotateY(-90deg)  translateZ(28px); }
-.die3d-top    { transform: rotateX(90deg)   translateZ(28px); }
-.die3d-bottom { transform: rotateX(-90deg)  translateZ(28px); }
-
-.die3d-pips {
+.d3-die {
   width: 100%;
   height: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 1s cubic-bezier(0.36, 0, 0.4, 1);
+}
+.d3-die--a { transform: rotateX(-48deg) rotateY(-40deg) rotateZ(0deg); }
+.d3-die--b { transform: rotateX(-48deg) rotateY(40deg) rotateZ(0deg); }
+
+.d3-face {
+  position: absolute;
+  width: var(--die-size);
+  height: var(--die-size);
+  border-radius: 17%;
+  background: linear-gradient(155deg, #ffffff 0%, #ededf1 60%, #dcdce2 100%);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(3, 1fr);
-  padding: 6px;
+  padding: 14%;
+  box-sizing: border-box;
 }
+.d3-face-front  { transform: translateZ(calc(var(--die-size) / 2)); }
+.d3-face-back   { transform: rotateY(180deg) translateZ(calc(var(--die-size) / 2)); }
+.d3-face-right  { transform: rotateY(90deg)  translateZ(calc(var(--die-size) / 2)); }
+.d3-face-left   { transform: rotateY(-90deg) translateZ(calc(var(--die-size) / 2)); }
+.d3-face-top    { transform: rotateX(90deg)  translateZ(calc(var(--die-size) / 2)); }
+.d3-face-bottom { transform: rotateX(-90deg) translateZ(calc(var(--die-size) / 2)); }
 
-.die-pip {
-  width: 9px;
-  height: 9px;
+.d3-cell { display: flex; align-items: center; justify-content: center; }
+.d3-pip {
+  width: calc(var(--die-size) * 0.2);
+  height: calc(var(--die-size) * 0.2);
   border-radius: 50%;
-  place-self: center;
-  background: transparent;
+  background: radial-gradient(circle at 32% 28%, #4d4d4d 0%, #161616 55%, #000000 100%);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.15), 0 1px 1px rgba(0, 0, 0, 0.35);
 }
 
-.die-pip-on {
-  background: var(--text, #1d1610);
+@keyframes d3-jump {
+  0%   { transform: translateY(0); }
+  35%  { transform: translateY(-72%); }
+  55%  { transform: translateY(-72%); }
+  100% { transform: translateY(0); }
 }
+.d3-wrap.d3-jumping { animation: d3-jump 1s cubic-bezier(0.36, 0, 0.4, 1); }

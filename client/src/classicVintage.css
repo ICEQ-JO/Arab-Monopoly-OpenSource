@@ -476,6 +476,15 @@
   box-shadow: 1px 2px 0 #7a0000;
 }
 
+.cv2-turn-status {
+  font-family: Georgia, "Times New Roman", "Amiri", serif;
+  font-size: clamp(12px, 1.4vw, 15px);
+  font-weight: 700;
+  font-style: italic;
+  color: #6b5a3a;
+  margin: 0;
+}
+
 .cv2-players {
   display: flex;
   flex-direction: column;
