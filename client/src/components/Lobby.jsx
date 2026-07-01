@@ -33,9 +33,6 @@ export default function Lobby({ onJoined }) {
   // Shared identity
   const [name,  setName]  = useState("");
 
-  // Create-specific
-  const [gameMode, setGameMode] = useState("normal");
-
   // Join-specific
   const [code, setCode] = useState("");
 
@@ -119,7 +116,7 @@ export default function Lobby({ onJoined }) {
   function createRoom() {
     if (!name.trim()) return setError("Enter your name first");
     setBusy(true);
-    socket.emit("createRoom", { gameMode, name: name.trim() }, (res) => {
+    socket.emit("createRoom", { name: name.trim() }, (res) => {
       setBusy(false);
       if (res?.error) return setError(res.error);
       onJoined(res);
@@ -256,20 +253,14 @@ export default function Lobby({ onJoined }) {
             <WizardHeader step={1} total={1} title="Choose Game Mode" onBack={() => go("landing")} />
 
             <div className="mode-picker">
-              <button
-                className={`mode-btn${gameMode === "normal" ? " active" : ""}`}
-                onClick={() => setGameMode("normal")}
-              >⚔ Normal</button>
-              <button
-                className={`mode-btn${gameMode === "characters" ? " active" : ""}`}
-                onClick={() => setGameMode("characters")}
-              >★ Characters</button>
+              <button className="mode-btn active">⚔ Normal</button>
+              <button className="mode-btn mode-btn-disabled" disabled title="Coming soon">
+                ★ Characters <span className="mode-btn-soon-banner">Coming Soon</span>
+              </button>
             </div>
 
             <p className="lobby-mode-desc">
-              {gameMode === "normal"
-                ? "Classic property trading — pick your color and rules once you're in the room."
-                : "Every player picks a unique character with special powers before the game starts."}
+              Classic property trading — pick your color and rules once you're in the room.
             </p>
 
             {error && <p className="lobby-error">{error}</p>}

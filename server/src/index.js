@@ -72,11 +72,11 @@ function bindSocket(socket, roomCode, playerId) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("createRoom", ({ gameMode, name, color, rules } = {}, cb) => {
+  socket.on("createRoom", ({ name, color, rules } = {}, cb) => {
     const playerId = nanoid();
     const token = nanoid();
     const code = generateRoomCode();
-    const room = new Room(code, playerId, gameMode || "normal");
+    const room = new Room(code, playerId);
     room.notify = () => broadcastState(code);
     room.addPlayer(playerId, token, name, color);
     if (rules) room.updateSettings(playerId, { rules });
@@ -131,10 +131,6 @@ io.on("connection", (socket) => {
     const playerId = getPlayerId(socket);
     if (!room || room.hostId !== playerId) return;
     if (room.players.length < 2) return;
-    if (room.gameMode === "characters") {
-      const unselected = room.players.filter((p) => !room.characterSelections[p.id]);
-      if (unselected.length > 0) return;
-    }
     room.start();
     broadcastState(room.code);
   });
@@ -153,21 +149,6 @@ io.on("connection", (socket) => {
     const result = room.setPlayerColor(getPlayerId(socket), color);
     if (result.ok) broadcastState(room.code);
     cb?.(result);
-  });
-
-  socket.on("selectCharacter", ({ characterId }, cb) => {
-    const room = getRoom(socket);
-    if (!room) return cb?.({ error: "Room not found" });
-    const result = room.selectCharacter(getPlayerId(socket), characterId);
-    if (result.ok) broadcastState(room.code);
-    cb?.(result);
-  });
-
-  socket.on("resetCharacterSelections", () => {
-    const room = getRoom(socket);
-    if (!room) return;
-    const result = room.resetCharacterSelections(getPlayerId(socket));
-    if (result.ok) broadcastState(room.code);
   });
 
   socket.on("rollDice", () => {

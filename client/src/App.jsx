@@ -2,10 +2,8 @@ import { useEffect, useState } from "react";
 import { socket } from "./socket";
 import { loadSession, saveSession, clearSession } from "./session";
 import Lobby from "./components/Lobby";
-import CharacterSelect from "./components/CharacterSelect";
 import BoardClassic from "./components/BoardClassic";
 import Hud from "./components/Hud";
-import PlayerCard from "./components/PlayerCard";
 import PlayersPanel from "./components/PlayersPanel";
 import TradeModal from "./components/TradeModal";
 import RulesPanel from "./components/RulesPanel";
@@ -90,9 +88,6 @@ function App() {
   }
 
   if (!state.started) {
-    if (state.gameMode === "characters") {
-      return <CharacterSelect state={state} myId={myId} onLeave={handleLeave} />;
-    }
     const isHost = state.hostId === myId;
     const rules = state.rules || {};
     return (
@@ -191,15 +186,9 @@ function App() {
     );
   }
 
-  const me = state.players.find((p) => p.id === myId);
-  const hasCard = !!(me?.characterId);
-
   return (
     <div className="game-screen">
-      {hasCard
-        ? <PlayerCard player={me} onLeave={handleLeave} />
-        : <PlayersPanel state={state} myId={myId} onOpenTrade={() => setTradeOpen(true)} onLeave={handleLeave} />
-      }
+      <PlayersPanel state={state} myId={myId} onOpenTrade={() => setTradeOpen(true)} onLeave={handleLeave} />
 
       <BoardClassic state={state} myId={myId} />
 
