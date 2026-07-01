@@ -7,117 +7,149 @@ truth for what each character is supposed to do — update it in place if a
 number or rule changes during implementation, the same way
 [systemDesign.md](systemDesign.md) tracks the current architecture.
 
-Real names and portraits are decided separately (codenames here are
-placeholders for the ability design itself). Selection mechanics (lobby
-flow, uniqueness enforcement, `selectCharacter` event) and the
-images-are-just-static-assets approach are settled but not detailed here —
-see the chat history this doc was extracted from, or re-derive from
-`systemDesign.md`'s existing patterns (`board.js`/`cards.js` as the model
-for a future `characters.js`) when implementation starts.
+Theme: crime-boss / heist archetypes. Real portraits are decided separately.
+Selection mechanics (lobby flow, uniqueness enforcement, `selectCharacter`
+event) and the images-are-just-static-assets approach are settled but not
+detailed here — re-derive from `systemDesign.md`'s existing patterns
+(`board.js`/`cards.js` as the model for a future `characters.js`) when
+implementation starts.
 
 ---
 
-## D — The Toll Keeper
+## D — The Don
 
 **Passive, always on, no cost or limit.**
 
-- Claims a fixed zone of the board (a set group of tiles, exact tiles TBD
-  at implementation time — e.g. one quadrant).
-- Anyone who lands on a tile inside D's zone pays D a toll of
-  **50 + 20 × (houses currently built on that tile)** — so an empty lot
-  costs 50, a tile with a hotel (level 5) costs 150.
-- This toll is paid **in addition to** any rent owed to the tile's actual
-  owner, if it has one. D doesn't need to own anything in their own zone
-  to profit from it.
-- D also takes **50% of every tax payment** any other player makes,
-  anywhere on the board, not just inside D's zone. This comes out of the
-  bank — it does **not** add anything to what the taxed player owes.
+- Holds a **30% stake** in a fixed turf zone (a designated group of tiles,
+  exact tiles TBD at implementation time). Any rent collected on tiles in
+  that zone pays D 30% of the amount on top.
+- Takes **50% of every tax payment** any other player makes, anywhere on the
+  board, not just inside his turf. Paid from the bank — never an extra
+  charge on the taxed player.
 
-**Known interaction:** D and Z (below) both feed off tax payments. In a
-tax-heavy stretch of a game with both in play, up to 55% of a tax payment
-(D's 50% + Z's 5%) goes to two players who didn't pay it. Confirmed
-acceptable, not a bug to fix later.
+**Active — Barricade, rechargeable, 10-turn cooldown.**
 
-## Z — The Skimmer
+- Places a wall on any one tile of his choice.
+- For the rest of that round, any player whose movement would otherwise carry
+  them past that tile is stopped there instead, and resolves that tile's
+  normal action (rent, tax, card draw, etc.) as if they'd landed on it
+  exactly — even if their roll would have taken them further.
+- The barricade itself doesn't charge a toll; whatever the player owes is
+  just whatever that tile would normally charge.
 
-**Passive, always on, no cost or limit. Purely reactive — earns nothing if the table doesn't trade or get taxed.**
+---
+
+## Z — The Enforcer
+
+**Passive, always on, no cost or limit. Purely reactive — earns nothing if
+the table doesn't trade or get taxed.**
 
 - Takes **5% of the total value of every completed trade** — cash on both
-  sides plus the listed board `price` of any properties changing hands,
-  not just the coins involved.
+  sides plus the listed board `price` of any properties changing hands, not
+  just the coins involved.
 - Takes **5% of every tax payment** any player makes.
-- Both percentages are pulled from the bank, same as D's tax cut — never
-  an extra charge on the player actually paying.
+- Both percentages are pulled from the bank, same as D's tax cut — never an
+  extra charge on the player actually paying.
 
-## Y — The Seizer
+**Active — Curse, rechargeable, 7-turn cooldown.**
 
-**Active, rechargeable, no fixed use cap (limited by cooldown instead).**
+- Targets any player. For the remainder of that round, **100% of whatever
+  that player would earn** goes to Z instead — the cursed player gets nothing
+  at all from any source until the round ends.
+- Drawback: Z cannot pay to leave the holding tile early — must always wait
+  out the full sentence.
 
-- One use **wipes an entire building down to bare land in a single
-  action** — it's not one house level at a time; a full hotel (level 5)
-  goes to zero in one use, same as a single house would.
-- The owner gets the normal per-level refund for every level removed
-  (same payout as a voluntary sell-house action would give).
-- If the targeted property has **no** houses to remove, the action
-  instead forces that property straight into mortgage — the owner still
-  gets the normal mortgage payout, just involuntarily.
-- **Recharge formula:** cooldown = **2 + 1 turn per house level just
-  removed**, counted in Y's own elapsed turns (consistent with how the
-  existing Holding Pen's `holdingTurns` only increments on that player's
-  own turn, not every turn at the table).
-  - Knock down 1 house level → 3-turn cooldown.
-  - Wipe a full hotel (5 levels) → 7-turn cooldown.
-  - Force-mortgage an empty lot (0 levels removed) → minimum cooldown,
-    same as the 1-level case: 3 turns.
+---
 
-## H — The Expander
+## Y — The Wrecker
 
-**Active, hard-capped at 2 uses for the entire game. No recharge — once both uses are spent, that's it.**
+**Passive, always on, no cost or limit.**
 
-- Each use claims the nearest *ownable* tile adjacent to territory H
-  already holds, in either direction along the board loop (skipping over
-  any tax/card/rest tiles that aren't ownable in between).
-- If that nearest tile is unowned, H simply buys it outright.
-- If it's owned by someone else, H forces the trade through anyway — but
-  always pays full listed price for it. Never a free seizure.
+- Whenever any player demolishes a house/hotel level or mortgages a property,
+  Y collects a flat **$50 from the bank**.
+- Selling raw, undeveloped land does not trigger this.
+
+**Active — Detonate, rechargeable, cooldown scales with damage done.**
+
+- Destroys a building on a targeted property in a single action.
+- Recharge formula, by what was destroyed:
+  - Empty lot (no levels removed): 4 turns
+  - One house level: 5 turns
+  - Two house levels: 6 turns
+  - Three house levels: 7 turns
+  - Four house levels: 8 turns
+  - Hotel (full level 5): 9 turns
+
+---
+
+## H — The Kingpin
+
+**Passive, always on, no cost or limit.**
+
+- Claims a fixed turf zone (separate from D's, exact tiles TBD at
+  implementation time).
+- Tracks landings on that zone across all players. Every **third landing**
+  (a deterministic counter, not a random chance) triggers a **90% cut** of
+  that landing's earnings to H.
+
+**Active 1 — Flank Seizure, rechargeable, 12-turn cooldown.**
+
+- Seizes the two ownable tiles immediately flanking a property H already
+  owns — the nearest ownable tile to the left and to the right along the
+  board loop. If unowned, H buys outright; if owned, H forces the trade
+  at full listed price.
+
+**Active 2 — Hostile Takeover, rechargeable, 7-turn static cooldown.**
+
+- Takes control of any one tile for the duration of the current round only,
+  then it reverts.
+
+---
 
 ## SD — The Conductor
 
-**Passive (station toll) + Active (attack power, rechargeable on the same timer shape as Y's).**
+**Passive (station toll), always on, no cost or limit.**
 
-- Whenever **any** player pays rent on **any** transit station, SD skims
-  an extra cut on top, regardless of who owns that station.
-- If SD personally owns a station, their own rent collected from it is
-  **×1.5** (not the usual count-based scaling other owners get, and not a
-  full double).
-- Separately, SD has a limited/rechargeable power that can demolish a
-  house level or force a mortgage — but always targeting **whoever
-  currently owns the most developed properties on the board** (a "check
-  the leader" mechanic), not a fixed rival character. This stays
-  meaningful even in games where any particular other character isn't
-  picked.
+- If SD owns the station a player lands on, that player pays **double** the
+  normal rent.
+- If SD doesn't own it, the landing player pays a flat **$50 to SD**
+  regardless of who the actual owner is, in addition to whatever they owe
+  that owner.
 
-## SE — The Opportunist
+**Active — Wrecking Tour, rechargeable, 8-turn cooldown.**
 
-**Passive (bank bonus) + a single irrevocable choice (alliance).**
+- Sends a bus around the board loop starting from SD's current position,
+  demolishing **2 building levels** on every property tile it passes through
+  (where applicable), continuing until it reaches tile 6 (the Coster
+  Station).
 
-- Whenever SE collects money from the bank — passing Start, or a card's
-  "collect" effect — they receive a flat bonus on top of the normal
-  amount (exact bonus amount TBD at implementation time).
-- Once per game, SE may forge a permanent alliance with **either Y or
-  SD** (never both, and the choice can never be changed once made).
-- While allied, that ally **cannot use their attack power against SE** —
-  Y can't seize/demolish SE's property, or SD can't target SE even if SE
-  becomes the development leader.
+---
+
+## SE — The Fixer
+
+**Passive, always on, no cost or limit.**
+
+- Collects **$400** instead of the normal $200 for passing Start.
+- Collects **$800** for landing exactly on Start.
+- Any payout from the bank (cards, etc.) is **doubled**.
+
+**Active — Heist, rechargeable, cooldown depends on what's stolen.**
+
+- Steals another player's active ability and uses it once, on the spot, as
+  if SE owned it.
+- Recharge formula: **5 turns + half of the stolen ability's own static
+  cooldown** (rounding TBD — see open questions below).
 
 ---
 
 ## Open implementation questions (intentionally left as placeholders)
 
-- D's exact zone tiles (which quadrant/group).
-- SE's exact bank-collection bonus amount.
-- Whether Y's/SD's recharge cooldowns should survive a server restart
-  exactly, or reset like the turn timer and auction timer currently do
-  (see `systemDesign.md` §6 for the precedent — turn/auction timers
-  already reset to a fresh full duration on restart, recharge cooldowns
-  would likely follow the same simplification).
+- D's and H's exact turf-zone tiles (which quadrants/groups, and whether
+  they're allowed to overlap).
+- Whether Active/Active 2 cooldowns should survive a server restart exactly,
+  or reset like the turn timer and auction timer currently do (see
+  `systemDesign.md` §6 for the precedent — turn/auction timers already reset
+  to a fresh full duration on restart, recharge cooldowns would likely follow
+  the same simplification).
+- Exact rounding rule for SE's "half of the stolen ability's cooldown" when
+  that cooldown is odd.
