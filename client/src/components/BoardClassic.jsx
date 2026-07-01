@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import { socket } from "../socket";
 import { playMoveSwoosh } from "../sfx";
 import Dice from "./Dice";
@@ -146,16 +145,7 @@ function ClassicTile({ tile, owned, players, pendingTileId, sideLen, currentPlay
 }
 
 export default function BoardClassic({ state, myId }) {
-  const { board, ownership, players, lastRoll, turnIndex } = state;
-
-  const [rollSeq, setRollSeq] = useState(0);
-  const prevRollRef = useRef(lastRoll);
-  useEffect(() => {
-    if (lastRoll !== prevRollRef.current) {
-      prevRollRef.current = lastRoll;
-      setRollSeq((s) => s + 1);
-    }
-  }, [lastRoll]);
+  const { board, ownership, players, lastRoll, turnIndex, rollSeq } = state;
 
   // Detect per-player position/property-count changes across state broadcasts
   // (same prev-ref-diff idiom as rollSeq above) to trigger one-shot token

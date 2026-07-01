@@ -67,7 +67,7 @@ test("ending a turn while solvent never bankrupts, regardless of past negative d
   assert.equal(alice.bankrupt, false);
 });
 
-test("the stuck-in-Holding-Pen auto-end path enforces bankruptcy too, not just the explicit End Turn button", () => {
+test("staying stuck in the Holding Pen still leaves the same mortgage/trade window before End Turn enforces bankruptcy", () => {
   const room = makeRoom(["Alice", "Bob", "Carol"]);
   after(() => cleanup(room));
   const alice = room.players[0];
@@ -76,6 +76,11 @@ test("the stuck-in-Holding-Pen auto-end path enforces bankruptcy too, not just t
   alice.holdingTurns = 0;
 
   withDice([[2, 5]], () => room.rollDice("p0"));
+
+  assert.equal(alice.bankrupt, false, "not bankrupted yet -- same chance to mortgage/trade as any other roll");
+  assert.equal(room.turnIndex, 0, "turn stays open until End Turn is clicked, so the roll is actually visible");
+
+  room.playerEndTurn("p0");
 
   assert.equal(alice.bankrupt, true);
   assert.equal(room.winnerId, null, "two other active players remain");

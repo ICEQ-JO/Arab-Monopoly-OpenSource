@@ -282,7 +282,6 @@ export class Room {
       } else {
         this.pushLog(`${player.name} is stuck in the Holding Pen (${player.holdingTurns}/${MAX_HOLDING_TURNS}).`);
         this.canRollAgain = false;
-        this.finishTurn(player);
         return { rolled: [d1, d2], stayedInHolding: true };
       }
     }
@@ -922,13 +921,11 @@ export class Room {
     }
   }
 
-  // The single point where a turn actually ends for whichever player currently
-  // holds it -- called from playerEndTurn (the normal path) and from the
-  // stuck-in-Holding-Pen auto-end in rollDice (the other way a turn can end
-  // without the player clicking anything). Finalizes their bankruptcy first if
-  // they're still in the red, then advances to the next player, exactly mirroring
-  // how kickPlayer already skips the turn-advance once checkWinner has ended the
-  // game outright.
+  // Ends the current player's turn via the player-facing playerEndTurn action.
+  // Finalizes their bankruptcy first if they're still in the red, then advances
+  // to the next player. (kickPlayer has its own similar but distinct path since
+  // it calls endTurn() directly and skips the bankruptcy check -- a kicked
+  // player is already handled separately.)
   finishTurn(player) {
     if (player.balance < 0) this.checkBankruptcy(player);
     if (!this.winnerId) this.endTurn();
