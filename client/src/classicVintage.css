@@ -273,29 +273,173 @@
 /* ---------- Player tokens ---------- */
 .cv2-tokens {
   position: absolute;
-  bottom: 2px;
-  left: 2px;
+  inset: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 1px;
+  align-items: center;
+  justify-content: center;
   z-index: 5;
   pointer-events: none;
 }
 
+/* Outer wrapper: fixed size + static stacking offset only. Percentage
+   transforms resolve against the element's OWN box (unlike percentage
+   margins, which resolve against the flex container) so this is what
+   actually keeps the fan-out centered on the tile regardless of tile size. */
 .cv2-token {
-  width: 12px;
-  height: 12px;
+  position: relative;
+  width: clamp(19px, 3.9vw, 39px);
+  aspect-ratio: 1;
+  transform: translateX(calc((var(--i, 0) - (var(--n, 1) - 1) / 2) * 60%));
+  z-index: calc(10 + var(--i, 0));
+  transition: transform 0.2s ease;
+}
+
+/* Inner element: carries all animations (bob/hop/celebrate), kept separate
+   from the outer stacking transform above so they don't clobber each other
+   (an `animation`'s keyframes fully replace `transform`, they don't compose
+   with a sibling static transform on the same element). */
+.cv2-token-inner {
+  position: absolute;
+  inset: 0;
+  animation: cv2-token-bob 2.6s ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+/* Cute flat "blob" face: solid player color, bold dark outline, big round
+   eyes with a sparkle highlight, rosy cheeks, and a default smiling mouth
+   (a downward-arced solid shape, not a neutral bar) so it reads as happy
+   at rest instead of a blank/unsettling stare. */
+.cv2-token-face {
+  position: absolute;
+  inset: 0;
   border-radius: 50%;
-  color: #fff;
-  font-size: 7px;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1.5px solid #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
-  line-height: 1;
+  background: var(--c);
+  border: 2.5px solid #1a1a1a;
+  box-shadow: 0 3px 4px rgba(0, 0, 0, 0.4);
+}
+
+.cv2-token-eye {
+  position: absolute;
+  top: 27%;
+  width: 19%;
+  height: 27%;
+  border-radius: 45%;
+  background: #1a1a1a;
+  animation: cv2-token-eye-idle 4.5s ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+.cv2-token-eye--l { left: 24%; }
+.cv2-token-eye--r { right: 24%; }
+
+.cv2-token-eye::after {
+  content: "";
+  position: absolute;
+  top: 16%;
+  left: 55%;
+  width: 34%;
+  height: 34%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.cv2-token-mouth {
+  position: absolute;
+  bottom: 24%;
+  left: 50%;
+  width: 46%;
+  height: 18%;
+  background: #1a1a1a;
+  border-radius: 0 0 50% 50%;
+  transform: translateX(-50%);
+  animation: cv2-token-mouth-idle 2.6s ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+@keyframes cv2-token-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-18%); }
+}
+
+/* Idle eyes: a slow glance left/right for personality, then a quick blink
+   near the end of the cycle -- combined into one keyframe since only one
+   `animation` can own `transform` on a given element at a time. */
+@keyframes cv2-token-eye-idle {
+  0%, 100% { transform: translateX(0) scaleY(1); }
+  40%      { transform: translateX(8%) scaleY(1); }
+  60%      { transform: translateX(-8%) scaleY(1); }
+  92%      { transform: translateX(0) scaleY(1); }
+  96%      { transform: translateX(0) scaleY(0.15); }
+}
+
+@keyframes cv2-token-mouth-idle {
+  0%, 100% { transform: translateX(-50%) scale(1, 1); }
+  50%      { transform: translateX(-50%) scale(1.06, 0.92); }
+}
+
+@keyframes cv2-token-hop {
+  0%   { transform: translateY(0) scale(1, 1); }
+  30%  { transform: translateY(-65%) scale(0.85, 1.2); }
+  55%  { transform: translateY(-90%) scale(1.1, 0.85); }
+  80%  { transform: translateY(-12%) scale(0.92, 1.08); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+
+.cv2-token--hop {
+  animation: cv2-token-hop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) 1;
+  animation-fill-mode: both;
+}
+
+/* Mid-jump, the mouth pops into a small surprised "o" for a beat of extra
+   character, then settles back into the default smile. */
+@keyframes cv2-token-hop-mouth {
+  0%, 100% { width: 46%; height: 18%; border-radius: 0 0 50% 50%; transform: translateX(-50%); }
+  45%, 65% { width: 26%; height: 26%; border-radius: 50%; transform: translateX(-50%) translateY(-8%); }
+}
+
+.cv2-token--hop .cv2-token-mouth {
+  animation: cv2-token-hop-mouth 0.55s ease-in-out 1;
+}
+
+/* Celebrate: eyes squeeze into happy closed arcs, mouth opens into a big
+   grin, plus a cheerful bounce. */
+@keyframes cv2-token-celebrate-bounce {
+  0%   { transform: scale(1); }
+  30%  { transform: scale(1.25); }
+  60%  { transform: scale(0.94); }
+  100% { transform: scale(1); }
+}
+@keyframes cv2-token-celebrate-eye {
+  0%, 100% { transform: scaleY(1) translateY(0); border-radius: 45%; }
+  30%, 70% { transform: scaleY(0.2) translateY(60%); border-radius: 50% 50% 0 0; }
+}
+@keyframes cv2-token-celebrate-mouth {
+  0%, 100% { width: 46%; height: 18%; border-radius: 0 0 50% 50%; }
+  30%, 70% { width: 62%; height: 34%; border-radius: 0 0 60% 60%; }
+}
+
+.cv2-token--celebrate .cv2-token-face {
+  animation: cv2-token-celebrate-bounce 0.7s ease-out 1;
+}
+.cv2-token--celebrate .cv2-token-eye {
+  animation: cv2-token-celebrate-eye 0.7s ease-out 1;
+}
+.cv2-token--celebrate .cv2-token-mouth {
+  animation: cv2-token-celebrate-mouth 0.7s ease-out 1;
+}
+
+@keyframes cv2-token-glow {
+  0%, 100% { box-shadow: 0 3px 4px rgba(0,0,0,0.4), 0 0 0 2px rgba(255,255,255,0.9), 0 0 8px 3px rgba(255,215,0,0.55); }
+  50%      { box-shadow: 0 3px 4px rgba(0,0,0,0.4), 0 0 0 2px rgba(255,255,255,0.9), 0 0 14px 5px rgba(255,215,0,0.9); }
+}
+
+.cv2-token--active .cv2-token-face {
+  animation: cv2-token-glow 1.4s ease-in-out infinite;
+}
+
+/* When both active-turn and celebrating, combine glow + bounce instead of
+   letting one animation shorthand silently clobber the other. */
+.cv2-token--active.cv2-token--celebrate .cv2-token-face {
+  animation: cv2-token-celebrate-bounce 0.7s ease-out 1, cv2-token-glow 1.4s ease-in-out infinite;
 }
 
 /* ---------- Treasure / Surprise tile icons ---------- */

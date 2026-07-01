@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { socket } from "../socket";
 import Dice from "./Dice";
+import PlayerToken from "./PlayerToken";
 import "../classicVintage.css";
 
 function TreasureIcon() {
@@ -66,7 +67,7 @@ function getLayout(id, sideLen) {
   return { edge, row, col, N };
 }
 
-function ClassicTile({ tile, owned, players, pendingTileId, sideLen }) {
+function ClassicTile({ tile, owned, players, pendingTileId, sideLen, currentPlayerId, movingIds, celebratingIds }) {
   const { id, name, price, amount, groupColor, type } = tile;
   const { edge, row, col } = getLayout(id, sideLen);
   const hasIcon = type === "treasure" || type === "surprise" || type === "tax" || type === "transit" || type === "rest";
@@ -126,15 +127,16 @@ function ClassicTile({ tile, owned, players, pendingTileId, sideLen }) {
 
       {occupants.length > 0 && (
         <div className="cv2-tokens">
-          {occupants.map((p) => (
-            <span
+          {occupants.map((p, i) => (
+            <PlayerToken
               key={p.id}
-              className="cv2-token"
-              style={{ background: p.color }}
-              title={p.name}
-            >
-              {p.name.charAt(0).toUpperCase()}
-            </span>
+              player={p}
+              stackIndex={i}
+              stackTotal={occupants.length}
+              isMoving={movingIds.has(p.id)}
+              justBought={celebratingIds.has(p.id)}
+              isActiveTurn={p.id === currentPlayerId}
+            />
           ))}
         </div>
       )}
@@ -153,6 +155,46 @@ export default function BoardClassic({ state, myId }) {
       setRollSeq((s) => s + 1);
     }
   }, [lastRoll]);
+
+  // Detect per-player position/property-count changes across state broadcasts
+  // (same prev-ref-diff idiom as rollSeq above) to trigger one-shot token
+  // hop/celebrate animations instead of a continuous state-driven animation.
+  const [movingIds, setMovingIds] = useState(() => new Set());
+  const [celebratingIds, setCelebratingIds] = useState(() => new Set());
+  const prevPositionsRef = useRef(new Map(players.map((p) => [p.id, p.position])));
+  const prevPropCountsRef = useRef(new Map(players.map((p) => [p.id, p.properties.length])));
+
+  useEffect(() => {
+    const prevPositions = prevPositionsRef.current;
+    const movedIds = [];
+    players.forEach((p) => {
+      if (prevPositions.get(p.id) !== undefined && prevPositions.get(p.id) !== p.position) movedIds.push(p.id);
+      prevPositions.set(p.id, p.position);
+    });
+
+    const prevPropCounts = prevPropCountsRef.current;
+    const boughtIds = [];
+    players.forEach((p) => {
+      const prevCount = prevPropCounts.get(p.id);
+      if (prevCount !== undefined && p.properties.length > prevCount) boughtIds.push(p.id);
+      prevPropCounts.set(p.id, p.properties.length);
+    });
+
+    const timers = [];
+    if (movedIds.length) {
+      setMovingIds((s) => new Set([...s, ...movedIds]));
+      timers.push(setTimeout(() => setMovingIds((s) => {
+        const next = new Set(s); movedIds.forEach((id) => next.delete(id)); return next;
+      }), 550));
+    }
+    if (boughtIds.length) {
+      setCelebratingIds((s) => new Set([...s, ...boughtIds]));
+      timers.push(setTimeout(() => setCelebratingIds((s) => {
+        const next = new Set(s); boughtIds.forEach((id) => next.delete(id)); return next;
+      }), 700));
+    }
+    return () => timers.forEach(clearTimeout);
+  }, [players]);
 
   const sideLen = board.length / 4;
   const N = sideLen + 1;
@@ -191,6 +233,9 @@ export default function BoardClassic({ state, myId }) {
             players={players}
             pendingTileId={pendingTileId}
             sideLen={sideLen}
+            currentPlayerId={currentPlayerId}
+            movingIds={movingIds}
+            celebratingIds={celebratingIds}
           />
         ))}
 
