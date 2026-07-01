@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { socket } from "../socket";
+import { primeAudio } from "../sfx";
 import Auction from "./Auction";
+import TileInfoPanel from "./TileInfoPanel";
 import { IconClock, IconDice, IconSurprise, IconTreasure } from "./icons";
 
 function TurnCountdown({ deadline }) {
@@ -26,7 +28,6 @@ export default function Hud({ state, myId }) {
   const isMyTurn = current?.id === myId;
   const pending = state.pendingAction;
   const board = state.board;
-  const pendingTile = pending ? board[pending.tileId] : null;
 
   const myOwnedBuildable = board.filter((t) => {
     const owned = state.ownership[t.id];
@@ -91,7 +92,7 @@ export default function Hud({ state, myId }) {
           {isMyTurn && !pending && (
             <div className="action-row">
               {state.canRollAgain && (
-                <button className="primary" onClick={() => socket.emit("rollDice")}>Roll Dice</button>
+                <button className="primary" onClick={() => { primeAudio(); socket.emit("rollDice"); }}>Roll Dice</button>
               )}
               <button onClick={() => socket.emit("endTurn")}>End Turn</button>
             </div>
@@ -106,15 +107,7 @@ export default function Hud({ state, myId }) {
             </div>
           )}
 
-          {isMyTurn && pending?.type === "awaitBuy" && (
-            <div className="buy-prompt">
-              <p>Buy <strong>{pendingTile.name}</strong> for ${pendingTile.price}?</p>
-              <div className="action-row">
-                <button className="primary" onClick={() => socket.emit("buyProperty")}>Buy</button>
-                <button onClick={() => socket.emit("declineBuy")}>Decline</button>
-              </div>
-            </div>
-          )}
+          <TileInfoPanel state={state} myId={myId} />
 
           {isMyTurn && !pending && myOwnedBuildable.length > 0 && (
             <details className="build-panel">

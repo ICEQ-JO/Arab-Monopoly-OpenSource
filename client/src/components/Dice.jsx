@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { playDiceRoll } from "../sfx";
 import "./dice.css";
 
 const LAYOUTS = {
@@ -87,6 +88,7 @@ export default function Dice({ roll, rollSeq }) {
   useEffect(() => {
     if (rollSeq === lastSeqRef.current) return;
     lastSeqRef.current = rollSeq;
+    playDiceRoll();
 
     const v1 = roll ? roll[0] : 1;
     const v2 = roll ? roll[1] : 1;

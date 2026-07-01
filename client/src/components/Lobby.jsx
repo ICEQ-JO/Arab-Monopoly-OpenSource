@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { socket } from "../socket";
+import { isSoundEnabled, setSoundEnabled, primeAudio } from "../sfx";
+import ThemeToggle from "./ThemeToggle";
 
 const QUOTES = [
   { text: "الناس من خوف الذل في ذل", author: "المتنبي" },
@@ -22,7 +24,7 @@ const FADE_DURATION  = 500;
 // Steps: 'landing' → 'create-mode' → done (color and rules are picked once
 //        inside the room, not here)
 //        'landing' → 'join'
-export default function Lobby({ onJoined }) {
+export default function Lobby({ onJoined, theme, onToggleTheme }) {
   // Quote cycling
   const [quoteIdx,  setQuoteIdx]  = useState(0);
   const [fading,    setFading]    = useState(false);
@@ -39,11 +41,12 @@ export default function Lobby({ onJoined }) {
   // UI state
   const [error, setError] = useState("");
   const [busy,  setBusy]  = useState(false);
-  const [muted, setMuted] = useState(true);
+  const [muted, setMuted] = useState(() => !isSoundEnabled());
 
-  // Audio
-  const audioCtxRef = useRef(null);
-  const nodesRef    = useRef(null);
+  // Audio -- context itself is shared/owned by sfx.js (also used for
+  // in-game dice/move sounds), so this component only tracks its own
+  // ambience nodes, not the AudioContext.
+  const nodesRef = useRef(null);
 
   function buildAmbience(ctx) {
     const master = ctx.createGain(); master.gain.value = 0.72; master.connect(ctx.destination);
@@ -86,18 +89,18 @@ export default function Lobby({ onJoined }) {
   }
 
   function startAmbience() {
-    if (audioCtxRef.current) return;
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    audioCtxRef.current = ctx; nodesRef.current = buildAmbience(ctx);
+    if (nodesRef.current) return;
+    const ctx = primeAudio();
+    nodesRef.current = buildAmbience(ctx);
   }
   function stopAmbience() {
-    if (!audioCtxRef.current) return;
-    try { nodesRef.current?.stop?.(); } catch (_) {}
-    audioCtxRef.current.close(); audioCtxRef.current = null; nodesRef.current = null;
+    if (!nodesRef.current) return;
+    try { nodesRef.current.stop(); } catch (_) {}
+    nodesRef.current = null;
   }
   function toggleSound() {
-    if (muted) { startAmbience(); setMuted(false); }
-    else        { stopAmbience();  setMuted(true);  }
+    if (muted) { setSoundEnabled(true); startAmbience(); setMuted(false); }
+    else        { setSoundEnabled(false); stopAmbience();  setMuted(true);  }
   }
 
   useEffect(() => () => stopAmbience(), []);
@@ -158,6 +161,7 @@ export default function Lobby({ onJoined }) {
     return (
       <div className="lobby">
         <SoundToggle muted={muted} onToggle={toggleSound} />
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         <Credits />
 
         <div className="lobby-content">
@@ -205,6 +209,7 @@ export default function Lobby({ onJoined }) {
     return (
       <div className="lobby">
         <SoundToggle muted={muted} onToggle={toggleSound} />
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         <Credits />
         <div className="lobby-content">
           <div className="lobby-title-float">
@@ -242,6 +247,7 @@ export default function Lobby({ onJoined }) {
     return (
       <div className="lobby">
         <SoundToggle muted={muted} onToggle={toggleSound} />
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         <Credits />
         <div className="lobby-content">
           <div className="lobby-title-float">

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { socket } from "../socket";
+import { playMoveSwoosh } from "../sfx";
 import Dice from "./Dice";
 import PlayerToken from "./PlayerToken";
 import "../classicVintage.css";
@@ -182,6 +183,7 @@ export default function BoardClassic({ state, myId }) {
 
     const timers = [];
     if (movedIds.length) {
+      playMoveSwoosh();
       setMovingIds((s) => new Set([...s, ...movedIds]));
       timers.push(setTimeout(() => setMovingIds((s) => {
         const next = new Set(s); movedIds.forEach((id) => next.delete(id)); return next;

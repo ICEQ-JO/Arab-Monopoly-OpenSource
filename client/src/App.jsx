@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { socket } from "./socket";
 import { loadSession, saveSession, clearSession } from "./session";
+import { getStoredTheme, applyTheme } from "./theme";
 import Lobby from "./components/Lobby";
 import BoardClassic from "./components/BoardClassic";
 import Hud from "./components/Hud";
@@ -8,6 +9,7 @@ import PlayersPanel from "./components/PlayersPanel";
 import TradeModal from "./components/TradeModal";
 import RulesPanel from "./components/RulesPanel";
 import ColorPicker from "./components/ColorPicker";
+import ThemeToggle from "./components/ThemeToggle";
 import "./App.css";
 
 function App() {
@@ -16,6 +18,15 @@ function App() {
   const [myId, setMyId] = useState(null);
   const [rejoining, setRejoining] = useState(false);
   const [tradeOpen, setTradeOpen] = useState(false);
+  const [theme, setTheme] = useState(getStoredTheme);
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
+  function toggleTheme() {
+    setTheme((t) => (t === "dark" ? "light" : "dark"));
+  }
 
   useEffect(() => {
     function attemptRejoin() {
@@ -84,7 +95,7 @@ function App() {
   }
 
   if (!joined || !state) {
-    return <Lobby onJoined={handleJoined} />;
+    return <Lobby onJoined={handleJoined} theme={theme} onToggleTheme={toggleTheme} />;
   }
 
   if (!state.started) {
@@ -92,6 +103,7 @@ function App() {
     const rules = state.rules || {};
     return (
       <div className="lobby">
+        <ThemeToggle theme={theme} onToggle={toggleTheme} />
         <div className="lobby-credits">
           <span className="lobby-credits-label">Made by</span>
           <span className="lobby-credits-name">Khalid Khudari</span>
@@ -188,6 +200,7 @@ function App() {
 
   return (
     <div className="game-screen">
+      <ThemeToggle theme={theme} onToggle={toggleTheme} />
       <PlayersPanel state={state} myId={myId} onOpenTrade={() => setTradeOpen(true)} onLeave={handleLeave} />
 
       <BoardClassic state={state} myId={myId} />
