@@ -35,6 +35,9 @@ export default function Lobby({ onJoined, theme, onToggleTheme }) {
   // Shared identity
   const [name,  setName]  = useState("");
 
+  // Create-specific
+  const [gameMode, setGameMode] = useState("normal");
+
   // Join-specific
   const [code, setCode] = useState("");
 
@@ -119,7 +122,7 @@ export default function Lobby({ onJoined, theme, onToggleTheme }) {
   function createRoom() {
     if (!name.trim()) return setError("Enter your name first");
     setBusy(true);
-    socket.emit("createRoom", { name: name.trim() }, (res) => {
+    socket.emit("createRoom", { gameMode, name: name.trim() }, (res) => {
       setBusy(false);
       if (res?.error) return setError(res.error);
       onJoined(res);
@@ -259,14 +262,20 @@ export default function Lobby({ onJoined, theme, onToggleTheme }) {
             <WizardHeader step={1} total={1} title="Choose Game Mode" onBack={() => go("landing")} />
 
             <div className="mode-picker">
-              <button className="mode-btn active">⚔ Normal</button>
-              <button className="mode-btn mode-btn-disabled" disabled title="Coming soon">
-                ★ Characters <span className="mode-btn-soon-banner">Coming Soon</span>
-              </button>
+              <button
+                className={`mode-btn${gameMode === "normal" ? " active" : ""}`}
+                onClick={() => setGameMode("normal")}
+              >⚔ Normal</button>
+              <button
+                className={`mode-btn${gameMode === "characters" ? " active" : ""}`}
+                onClick={() => setGameMode("characters")}
+              >★ Characters</button>
             </div>
 
             <p className="lobby-mode-desc">
-              Classic property trading — pick your color and rules once you're in the room.
+              {gameMode === "normal"
+                ? "Classic property trading — pick your color and rules once you're in the room."
+                : "Every player picks a character before the game starts."}
             </p>
 
             {error && <p className="lobby-error">{error}</p>}

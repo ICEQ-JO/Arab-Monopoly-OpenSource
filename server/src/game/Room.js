@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 import { TILE_TYPES, BOARD, TOTAL_TILES, propertiesByGroup } from "./board.js";
 import { SURPRISE_CARDS, TREASURE_CARDS, shuffledDeck } from "./cards.js";
+import { CHARACTER_IDS, CHARACTER_NAMES } from "./characters.js";
 
 // Exported so the test suite can assert against these by name instead of
 // hardcoding magic numbers that would silently drift out of sync if tuned here.
@@ -30,9 +31,10 @@ const DEFAULT_RULES = {
 };
 
 export class Room {
-  constructor(code, hostId) {
+  constructor(code, hostId, gameMode = "normal") {
     this.code = code;
     this.hostId = hostId;
+    this.gameMode = gameMode;
     this._board = BOARD;
     this._totalTiles = TOTAL_TILES;
     this._propertiesByGroup = propertiesByGroup;
@@ -56,6 +58,7 @@ export class Room {
     this.auctions = [];
     this.canRollAgain = true;
     this.consecutiveDoubles = 0;
+    this.characterSelections = {};
     this.rollSeq = 0;
   }
 
@@ -205,10 +208,32 @@ export class Room {
     return { ok: true };
   }
 
+  selectCharacter(playerId, characterId) {
+    if (this.started) return { error: "Game already started" };
+    if (!CHARACTER_IDS.includes(characterId)) return { error: "Invalid character" };
+    for (const [pid, cid] of Object.entries(this.characterSelections)) {
+      if (cid === characterId && pid !== playerId) return { error: "Character already taken" };
+    }
+    this.characterSelections[playerId] = characterId;
+    return { ok: true };
+  }
+
+  resetCharacterSelections(playerId) {
+    if (playerId !== this.hostId) return { error: "Not the host" };
+    if (this.started) return { error: "Game already started" };
+    this.characterSelections = {};
+    return { ok: true };
+  }
+
   start() {
     const startBalance = this.rules.startingCash ?? STARTING_BALANCE;
     for (const player of this.players) {
       player.balance = startBalance;
+      const charId = this.characterSelections[player.id];
+      if (charId) {
+        player.characterId = charId;
+        player.name = CHARACTER_NAMES[charId] || player.name;
+      }
     }
     this.started = true;
     this.canRollAgain = true;
@@ -970,7 +995,9 @@ export class Room {
       auctions: this.auctions.map(({ timer, ...pub }) => pub),
       canRollAgain: this.canRollAgain,
       board: this._board,
+      characterSelections: this.characterSelections,
       rollSeq: this.rollSeq,
+      gameMode: this.gameMode,
       rules: this.rules,
       vacationPot: this.vacationPot,
     };
@@ -998,7 +1025,9 @@ export class Room {
       auctions: this.auctions.map(({ timer, ...rest }) => rest),
       canRollAgain: this.canRollAgain,
       consecutiveDoubles: this.consecutiveDoubles,
+      characterSelections: this.characterSelections,
       rollSeq: this.rollSeq,
+      gameMode: this.gameMode,
       rules: this.rules,
       vacationPot: this.vacationPot,
     };
@@ -1013,7 +1042,7 @@ export class Room {
   //  - The current player's turn timer is re-armed for a fresh full duration
   //    rather than trying to preserve exactly how much time was left.
   static fromSnapshot(snapshot) {
-    const room = new Room(snapshot.code, snapshot.hostId);
+    const room = new Room(snapshot.code, snapshot.hostId, snapshot.gameMode || "normal");
     if (snapshot.rules) room.rules = { ...DEFAULT_RULES, ...snapshot.rules };
     if (snapshot.vacationPot !== undefined) room.vacationPot = snapshot.vacationPot;
     room.started = snapshot.started;
@@ -1034,6 +1063,7 @@ export class Room {
     room.auctions = (snapshot.auctions || []).map((a) => ({ ...a, timer: null, deadline: Date.now() + AUCTION_BASE_MS }));
     room.canRollAgain = snapshot.canRollAgain ?? true;
     room.consecutiveDoubles = snapshot.consecutiveDoubles || 0;
+    room.characterSelections = snapshot.characterSelections || {};
     room.rollSeq = snapshot.rollSeq || 0;
 
     for (const player of room.players) {

@@ -3,6 +3,7 @@ import { socket } from "./socket";
 import { loadSession, saveSession, clearSession } from "./session";
 import { getStoredTheme, applyTheme } from "./theme";
 import Lobby from "./components/Lobby";
+import CharacterSelect from "./components/CharacterSelect";
 import BoardClassic from "./components/BoardClassic";
 import Hud from "./components/Hud";
 import PlayersPanel from "./components/PlayersPanel";
@@ -99,6 +100,9 @@ function App() {
   }
 
   if (!state.started) {
+    if (state.gameMode === "characters") {
+      return <CharacterSelect state={state} myId={myId} onLeave={handleLeave} />;
+    }
     const isHost = state.hostId === myId;
     const rules = state.rules || {};
     return (

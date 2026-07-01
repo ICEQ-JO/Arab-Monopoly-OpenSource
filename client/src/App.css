@@ -1979,6 +1979,22 @@ select {
   font-family: "Arvo", Georgia, serif;
 }
 
+.panel-player-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2.5px solid var(--border);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  overflow: hidden;
+  background: var(--panel-2);
+}
+.panel-player-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .panel-player-info {
   flex: 1;
   min-width: 0;
@@ -2223,6 +2239,227 @@ select {
   text-align: center;
   margin: 4px 0 0;
   line-height: 1.5;
+}
+
+/* ── Character Selection Screen ───────────────────────────── */
+
+.char-select-screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 24px 16px 48px;
+  background: repeating-linear-gradient(45deg, rgba(0,0,0,0.035) 0px, rgba(0,0,0,0.035) 2px, transparent 2px, transparent 6px), #d9c99a;
+  --panel: #f3e8c9;
+  --panel-2: #e6d6a8;
+  --text: #2a1c0d;
+  --text-dim: #7a6840;
+  --border: #1f1608;
+  --border-light: #a78c54;
+  --accent: #c9960a;
+  --accent-ink: #fff8e0;
+}
+[data-theme="dark"] .char-select-screen {
+  background: repeating-linear-gradient(45deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 2px, transparent 2px, transparent 6px), #1c150c;
+  --panel: #2b2013;
+  --panel-2: #3a2c18;
+  --text: #ecdcb0;
+  --text-dim: #b8a06a;
+  --border: #0f0a04;
+  --border-light: #5c4826;
+  --accent: #d9a72c;
+  --accent-ink: #1b1509;
+}
+
+.char-select-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 900px;
+}
+
+.char-select-title {
+  font-family: "Marhaban Arabic", "Alfa Slab One", Georgia, serif;
+  font-size: clamp(24px, 4vw, 36px);
+  color: var(--text);
+  margin: 0;
+}
+
+.char-select-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.char-select-players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  max-width: 900px;
+}
+
+.char-select-player-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  border: 2px solid var(--border-light);
+  border-radius: 20px;
+  padding: 5px 12px;
+  font-size: 13px;
+  color: var(--text);
+}
+.char-select-player-chip .swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+}
+.char-select-player-chip.chip-me {
+  border-color: var(--accent);
+  background: var(--panel-2);
+}
+.chip-char-name { color: var(--accent-ink); font-weight: 700; }
+.chip-picking { color: var(--text-dim); font-style: italic; }
+.char-select-player-chip .badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.char-select-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 380px;
+  background: var(--panel);
+  border: 2.5px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 4px 4px 0 var(--border);
+  padding: 16px 18px;
+}
+
+.char-select-subtitle {
+  font-size: 20px;
+  margin: 0;
+  color: var(--text);
+}
+
+.char-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, 170px);
+  gap: 18px;
+  justify-content: center;
+  max-width: 900px;
+}
+
+.char-select-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* ── Character Card (static, no flip) ── */
+
+.char-card {
+  position: relative;
+  width: 170px;
+  background: var(--panel);
+  border: 2.5px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 3px 3px 0 var(--border);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 10px;
+}
+
+.char-card-mine {
+  border-color: var(--accent);
+  box-shadow: 3px 3px 0 var(--accent);
+}
+
+.char-card-taken {
+  opacity: 0.55;
+}
+
+.char-card-portrait {
+  width: 100%;
+  height: 150px;
+  overflow: hidden;
+  border-bottom: 2px solid var(--border);
+  background: var(--panel-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.char-card-portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.char-card-label {
+  padding: 8px 10px 4px;
+  text-align: center;
+}
+.char-card-name {
+  font-family: "Marhaban Arabic", "Alfa Slab One", Georgia, serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.char-card-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  border-radius: 4px;
+  padding: 2px 6px;
+  border: 1.5px solid;
+}
+.char-card-badge-mine {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent-ink);
+}
+.char-card-badge-taken {
+  background: var(--panel-2);
+  color: var(--text-dim);
+  border-color: var(--border-light);
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.char-select-btn {
+  width: calc(100% - 20px);
+  margin: 6px auto 0;
+  font-size: 11px;
+  padding: 7px 10px;
+}
+
+.char-taken-label {
+  margin: 6px 0 0;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-style: italic;
 }
 
 /* Wizard header */
