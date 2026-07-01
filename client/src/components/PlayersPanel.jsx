@@ -1,9 +1,8 @@
-import { useState } from "react";
 import { socket } from "../socket";
+import ThemeToggle from "./ThemeToggle";
 
-export default function PlayersPanel({ state, myId, onOpenTrade, onLeave }) {
-  const { players, roomCode, hostId, started, log = [], winnerId } = state;
-  const me = players.find((p) => p.id === myId);
+export default function PlayersPanel({ state, myId, onOpenTrade, onLeave, theme, onToggleTheme }) {
+  const { players, roomCode, hostId, started, winnerId } = state;
   const isHost = hostId === myId;
 
   function startGame() { socket.emit("startGame"); }
@@ -18,7 +17,10 @@ export default function PlayersPanel({ state, myId, onOpenTrade, onLeave }) {
           <span className="panel-room-label">Room</span>
           <span className="panel-room-value">{roomCode}</span>
         </div>
-        <button className="panel-leave-btn" onClick={onLeave}>Leave</button>
+        <div className="panel-header-actions">
+          <ThemeToggle theme={theme} onToggle={onToggleTheme} inline />
+          <button className="panel-leave-btn" onClick={onLeave}>Leave</button>
+        </div>
       </div>
 
       {/* Winner banner */}
@@ -85,24 +87,6 @@ export default function PlayersPanel({ state, myId, onOpenTrade, onLeave }) {
           );
         })}
       </div>
-
-      {/* Separator */}
-      {started && log.length > 0 && <div className="panel-divider" />}
-
-      {/* Game Log — moved here from Hud */}
-      {started && (
-        <div className="panel-log-section">
-          <span className="panel-log-title">📋 Game Log</span>
-          <div className="panel-log-list">
-            {[...log].reverse().slice(0, 25).map((entry, i) => (
-              <div key={i} className={`panel-log-entry${i === 0 ? " log-newest" : ""}`}>
-                {entry}
-              </div>
-            ))}
-            {log.length === 0 && <div className="panel-log-empty">Game started!</div>}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

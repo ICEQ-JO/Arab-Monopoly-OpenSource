@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { socket } from "../socket";
 
+const MAP_OPTIONS = [
+  { key: "classic", label: "Classic Vintage (48 tiles)" },
+  { key: "eu", label: "EU (32 tiles)" },
+  { key: "middle-east", label: "Middle East (24 tiles)" },
+];
+
 const RULE_DEFS = [
   { key: "vacationPot",      label: "Vacation Cash Pot",        desc: "Taxes & fines go into a pot — landing on Vacation collects it all" },
   { key: "noRentInPrison",   label: "No Rent While in Prison",  desc: "Owners in the Holding Pen cannot collect rent" },
@@ -27,6 +33,22 @@ export default function RulesPanel({ rules, isHost }) {
       </div>
       {open && (
         <div className="rules-panel-body">
+          <div className={`rule-row${!isHost ? " rule-row-readonly" : ""}`}>
+            <div className="rule-label">
+              <span className="rule-name">Board Map</span>
+              <span className="rule-desc">Which board the game is played on</span>
+            </div>
+            <select
+              className="rule-cash-input"
+              value={rules.map ?? "classic"}
+              disabled={!isHost}
+              onChange={(e) => updateRule("map", e.target.value)}
+            >
+              {MAP_OPTIONS.map(({ key, label }) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+          </div>
           {RULE_DEFS.map(({ key, label, desc }) => (
             <div key={key} className={`rule-row${!isHost ? " rule-row-readonly" : ""}`}>
               <div className="rule-label">

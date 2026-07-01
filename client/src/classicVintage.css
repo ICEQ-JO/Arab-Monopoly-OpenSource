@@ -601,6 +601,7 @@
   background: #faf6e8 url("/board-pattern.png") center / cover no-repeat;
   border: 2px double #333;
   padding: 7% 12px 4%;
+  min-height: 0;
 }
 
 .cv2-title {
@@ -626,7 +627,7 @@
   align-items: center;
   justify-content: center;
   gap: 48px;
-  flex: 1;
+  flex-shrink: 0;
   width: 100%;
 }
 
@@ -655,22 +656,18 @@
   box-shadow: 1px 2px 0 #7a0000;
 }
 
-/* Dev-only test button -- visually distinct (small, dashed, grey) from the
-   real roll button so it never reads as a normal game action. */
-.cv2-debug-stack-btn {
-  font-size: 11px;
-  background: #444;
-  border: 2px dashed #999;
-  box-shadow: none;
-  padding: 5px 10px;
-  margin-top: 4px;
-  opacity: 0.8;
+.cv2-action-row {
+  display: flex;
+  gap: 12px;
 }
 
-.cv2-debug-stack-btn:hover {
-  opacity: 1;
-  transform: none;
-  box-shadow: none;
+.cv2-decline-btn {
+  background: #555;
+  box-shadow: 3px 4px 0 #2a2a2a;
+}
+
+.cv2-decline-btn:hover {
+  box-shadow: 3px 5px 0 #2a2a2a;
 }
 
 .cv2-turn-status {
@@ -728,5 +725,64 @@
   outline: 3px solid #c9960a;
   outline-offset: -3px;
   z-index: 3;
+}
+
+/* ---------- Board-center game log ---------- */
+.cv2-log-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 460px;
+  flex: 1;
+  min-height: 0;
+}
+
+.cv2-log-title {
+  font-family: Georgia, "Times New Roman", "Amiri", serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #6b5a3a;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.cv2-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-height: 60px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 2px solid #333;
+  border-radius: 16px;
+}
+
+.cv2-log-entry {
+  font-size: 11px;
+  color: #2a1c0d;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-left: 3px solid rgba(0, 0, 0, 0.25);
+  border-radius: 5px;
+  line-height: 1.35;
+}
+
+.cv2-log-entry.cv2-log-newest {
+  border-left-color: #c9960a;
+  background: rgba(201, 150, 10, 0.12);
+}
+
+.cv2-log-empty {
+  font-size: 11px;
+  color: #6b5a3a;
+  font-style: italic;
+  padding: 4px 8px;
+  text-align: center;
 }
 

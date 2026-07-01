@@ -1,7 +1,11 @@
-export default function ThemeToggle({ theme, onToggle }) {
+export default function ThemeToggle({ theme, onToggle, inline = false }) {
   const isDark = theme === "dark";
   return (
-    <button className="theme-toggle" onClick={onToggle} title={isDark ? "Switch to light mode" : "Switch to dark mode"}>
+    <button
+      className={`theme-toggle${inline ? " theme-toggle--inline" : ""}`}
+      onClick={onToggle}
+      title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+    >
       {isDark ? (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="4" />

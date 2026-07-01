@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { socket } from "../socket";
-import { playMoveSwoosh } from "../sfx";
+import { playMoveSwoosh, primeAudio } from "../sfx";
 import Dice from "./Dice";
 import PlayerToken from "./PlayerToken";
 import PropertyCardDetail from "./PropertyCardDetail";
@@ -78,7 +78,7 @@ function getLayout(id, sideLen) {
   return { edge, row, col, N };
 }
 
-function ClassicTile({ tile, owned, players, pendingTileId, sideLen, onSelect, isSelected }) {
+function ClassicTile({ tile, owned, players, pendingTileId, sideLen, onSelect, onHoverEnter, onHoverLeave, isSelected }) {
   const { id, name, price, amount, groupColor, type } = tile;
   const { edge, row, col } = getLayout(id, sideLen);
   const hasIcon = type === "treasure" || type === "surprise" || type === "tax" || type === "transit" || type === "rest";
@@ -103,6 +103,8 @@ function ClassicTile({ tile, owned, players, pendingTileId, sideLen, onSelect, i
       className={`cv2-tile ${isCorner ? "cv2-corner" : `cv2-side-${edge}`}${type === "transit" ? " cv2-transit" : ""}${type === "rest" ? " cv2-rest" : ""}${isPending ? " cv2-pending" : ""}${isClickable ? " cv2-tile-clickable" : ""}${isSelected ? " cv2-tile-selected" : ""}`}
       style={{ gridRow: row, gridColumn: col }}
       onClick={isClickable ? (e) => onSelect(id, e.currentTarget, edge) : undefined}
+      onMouseEnter={isClickable ? (e) => onHoverEnter(id, e.currentTarget, edge) : undefined}
+      onMouseLeave={isClickable ? () => onHoverLeave(id) : undefined}
     >
       {!isCorner && groupColor && <div className="cv2-band" style={{ background: groupColor }} />}
       {!isCorner && ownerColor && <div className="cv2-owner-bar" style={{ background: ownerColor }} />}
@@ -185,6 +187,11 @@ export default function BoardClassic({ state, myId }) {
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [cardPos, setCardPos] = useState({ top: 0, left: 0 });
   const [cardError, setCardError] = useState("");
+  // Whether the currently-open card was pinned open by a click, rather than
+  // just showing on hover -- a pinned card survives the mouse leaving the
+  // tile and only closes on an explicit click outside it (or clicking the
+  // pinned tile again).
+  const [pinned, setPinned] = useState(false);
   const boardRef = useRef(null);
   const cardRef = useRef(null);
   const selectedTileElRef = useRef(null);
@@ -193,13 +200,45 @@ export default function BoardClassic({ state, myId }) {
   // Records which tile is open and a live reference to its DOM node (not a
   // one-time snapshot of its position -- re-measured fresh on every layout
   // pass below, so the card's offset stays correct even if the board
-  // resizes while it's open). Clicking the tile that's already open closes it.
-  function selectTile(tileId, tileEl, edge) {
+  // resizes while it's open).
+  function openTile(tileId, tileEl, edge) {
     setCardError("");
-    const wasOpen = selectedTileId === tileId;
-    setSelectedTileId(wasOpen ? null : tileId);
-    setSelectedEdge(wasOpen ? null : edge);
-    selectedTileElRef.current = wasOpen ? null : tileEl;
+    setSelectedTileId(tileId);
+    setSelectedEdge(edge);
+    selectedTileElRef.current = tileEl;
+  }
+
+  function closeTile() {
+    setSelectedTileId(null);
+    setSelectedEdge(null);
+    selectedTileElRef.current = null;
+    setPinned(false);
+  }
+
+  // Hovering opens the card as a preview; it never opens/replaces a card
+  // that's currently pinned open by a click.
+  function handleHoverEnter(tileId, tileEl, edge) {
+    if (pinned) return;
+    openTile(tileId, tileEl, edge);
+  }
+
+  // Leaving the tile closes the preview -- unless it's pinned, in which case
+  // it stays open until an explicit click outside (or re-clicking the tile).
+  function handleHoverLeave(tileId) {
+    if (pinned) return;
+    if (selectedTileId !== tileId) return;
+    closeTile();
+  }
+
+  // Clicking pins the card open (or opens it, if hover hadn't already).
+  // Clicking the tile that's already pinned open unpins and closes it.
+  function selectTile(tileId, tileEl, edge) {
+    if (pinned && selectedTileId === tileId) {
+      closeTile();
+      return;
+    }
+    openTile(tileId, tileEl, edge);
+    setPinned(true);
   }
 
   // Positions the card OFFSET from the tile that opened it -- never on top
@@ -338,7 +377,7 @@ export default function BoardClassic({ state, myId }) {
   }
 
   return (
-    <div className="cv2-root" style={{ width: "min(980px, 96vw, calc(100vh - 40px))", aspectRatio: "1", margin: "0 auto" }}>
+    <div className="cv2-root" style={{ width: "100%", height: "100%" }}>
       <div
         ref={boardRef}
         className="cv2-board"
@@ -346,8 +385,11 @@ export default function BoardClassic({ state, myId }) {
           display: "grid",
           gridTemplateColumns: gridTemplate,
           gridTemplateRows: gridTemplate,
-          width: "100%",
           height: "100%",
+          width: "auto",
+          maxWidth: "100%",
+          maxHeight: "1400px",
+          aspectRatio: "1",
         }}
         onClick={(e) => {
           // A tile's own onClick (below) already manages open/close/switch --
@@ -356,9 +398,7 @@ export default function BoardClassic({ state, myId }) {
           if (selectedTileId == null) return;
           if (e.target.closest(".cv2-tile-clickable")) return;
           if (e.target.closest(".cv2-tile-card-wrap")) return;
-          setSelectedTileId(null);
-          setSelectedEdge(null);
-          selectedTileElRef.current = null;
+          closeTile();
         }}
       >
         {board.map((tile) => (
@@ -370,6 +410,8 @@ export default function BoardClassic({ state, myId }) {
             pendingTileId={pendingTileId}
             sideLen={sideLen}
             onSelect={selectTile}
+            onHoverEnter={handleHoverEnter}
+            onHoverLeave={handleHoverLeave}
             isSelected={selectedTileId === tile.id}
           />
         ))}
@@ -422,9 +464,23 @@ export default function BoardClassic({ state, myId }) {
             {(() => {
               const isMyTurn = players[turnIndex]?.id === myId;
               const pending = state.pendingAction;
+              // Buy/Decline takes priority over Roll/End Turn -- it's the
+              // action blocking the turn whenever it's pending.
+              if (isMyTurn && pending?.type === "awaitBuy") {
+                return (
+                  <div className="cv2-action-row">
+                    <button className="cv2-roll-btn" onClick={() => socket.emit("buyProperty")}>
+                      Buy
+                    </button>
+                    <button className="cv2-roll-btn cv2-decline-btn" onClick={() => socket.emit("declineBuy")}>
+                      Decline
+                    </button>
+                  </div>
+                );
+              }
               if (isMyTurn && !pending && state.canRollAgain) {
                 return (
-                  <button className="cv2-roll-btn" onClick={() => socket.emit("rollDice")}>
+                  <button className="cv2-roll-btn" onClick={() => { primeAudio(); socket.emit("rollDice"); }}>
                     Roll Dice
                   </button>
                 );
@@ -449,15 +505,6 @@ export default function BoardClassic({ state, myId }) {
             })()}
           </div>
 
-          {/* Dev-only: teleports everyone onto "صنوق الحج" to check the
-              same-tile token stacking without playing a real game. */}
-          <button
-            className="cv2-roll-btn cv2-debug-stack-btn"
-            onClick={() => socket.emit("debugStackOnTile", { tileName: "الحج" })}
-          >
-            Test: stack on صندوق الحج
-          </button>
-
           <div className="cv2-players">
             {players.filter((p) => !p.left).map((p) => (
               <div key={p.id} className="cv2-player-row">
@@ -466,6 +513,20 @@ export default function BoardClassic({ state, myId }) {
                 <span>${p.balance}</span>
               </div>
             ))}
+          </div>
+
+          <div className="cv2-log-section">
+            <span className="cv2-log-title">📋 Game Log</span>
+            <div className="cv2-log-list">
+              {[...(state.log || [])].reverse().slice(0, 25).map((entry, i) => (
+                <div key={i} className={`cv2-log-entry${i === 0 ? " cv2-log-newest" : ""}`}>
+                  {entry}
+                </div>
+              ))}
+              {(!state.log || state.log.length === 0) && (
+                <div className="cv2-log-empty">Game started!</div>
+              )}
+            </div>
           </div>
         </div>
       </div>

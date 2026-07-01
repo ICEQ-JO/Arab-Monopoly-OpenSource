@@ -6,6 +6,7 @@ import Lobby from "./components/Lobby";
 import BoardClassic from "./components/BoardClassic";
 import Hud from "./components/Hud";
 import PlayersPanel from "./components/PlayersPanel";
+import MyProperties from "./components/MyProperties";
 import TradeModal from "./components/TradeModal";
 import RulesPanel from "./components/RulesPanel";
 import IconPicker from "./components/IconPicker";
@@ -219,12 +220,21 @@ function App() {
 
   return (
     <div className="game-screen">
-      <ThemeToggle theme={theme} onToggle={toggleTheme} />
-      <PlayersPanel state={state} myId={myId} onOpenTrade={() => setTradeOpen(true)} onLeave={handleLeave} />
+      <div className="game-screen-left">
+        <Hud state={state} myId={myId} />
+        <MyProperties state={state} myId={myId} />
+      </div>
 
       <BoardClassic state={state} myId={myId} />
 
-      <Hud state={state} myId={myId} />
+      <PlayersPanel
+        state={state}
+        myId={myId}
+        onOpenTrade={() => setTradeOpen(true)}
+        onLeave={handleLeave}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      />
 
       {tradeOpen && state.started && (
         <TradeModal state={state} myId={myId} onClose={() => setTradeOpen(false)} />

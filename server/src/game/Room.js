@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid";
-import { TILE_TYPES, BOARD, TOTAL_TILES, propertiesByGroup } from "./board.js";
+import { TILE_TYPES, MAPS } from "./board.js";
 import { SURPRISE_CARDS, TREASURE_CARDS, shuffledDeck } from "./cards.js";
-import { ICON_IDS } from "./icons.js";
+import { ICON_IDS, ICON_COLORS } from "./icons.js";
 
 // Exported so the test suite can assert against these by name instead of
 // hardcoding magic numbers that would silently drift out of sync if tuned here.
@@ -28,17 +28,15 @@ const DEFAULT_RULES = {
   doubleRentFullSet: true,
   auction:           true,
   startingCash:      1500,
+  map:               "classic",
 };
 
 export class Room {
   constructor(code, hostId) {
     this.code = code;
     this.hostId = hostId;
-    this._board = BOARD;
-    this._totalTiles = TOTAL_TILES;
-    this._propertiesByGroup = propertiesByGroup;
-    this._holdingTileId = BOARD.find((t) => t.type === TILE_TYPES.HOLDING)?.id;
     this.rules = { ...DEFAULT_RULES };
+    this.resolveBoard(this.rules.map);
     this.vacationPot = 0;
     this.players = [];
     this.ownership = {};
@@ -60,6 +58,17 @@ export class Room {
     this.rollSeq = 0;
   }
 
+  // Sets which map's tile data this room plays on. Safe to call any time
+  // pre-game (player.position is always 0 before start()); updateSettings()
+  // already blocks changes once the game has started.
+  resolveBoard(mapKey) {
+    const map = MAPS[mapKey] ?? MAPS.classic;
+    this._board = map.BOARD;
+    this._totalTiles = map.TOTAL_TILES;
+    this._propertiesByGroup = map.propertiesByGroup;
+    this._holdingTileId = map.BOARD.find((t) => t.type === TILE_TYPES.HOLDING)?.id;
+  }
+
   updateSettings(hostId, { rules } = {}) {
     if (this.hostId !== hostId) return { error: "Only the host can change settings" };
     if (this.started) return { error: "Game already started" };
@@ -67,6 +76,7 @@ export class Room {
       for (const [k, v] of Object.entries(rules)) {
         if (k in DEFAULT_RULES) this.rules[k] = v;
       }
+      if ("map" in rules) this.resolveBoard(this.rules.map);
     }
     return { ok: true };
   }
@@ -207,14 +217,19 @@ export class Room {
     return { ok: true };
   }
 
-  // Icon is purely cosmetic (the on-board token image) -- unlike color,
-  // multiple players may share the same icon.
+  // Icon is the on-board token image -- like color, each active player must
+  // have a distinct one so tokens on the same tile are visually distinguishable.
+  // Each icon has a fixed color (ICON_COLORS), so picking an icon also syncs
+  // the player's token/owner-bar color to match it.
   setPlayerIcon(playerId, iconId) {
     const player = this.playerById(playerId);
     if (!player) return { error: "Not in this room" };
     if (this.started) return { error: "Game already started" };
     if (!ICON_IDS.includes(iconId)) return { error: "Invalid icon" };
+    const taken = this.players.some((p) => p.id !== playerId && !p.left && p.icon === iconId);
+    if (taken) return { error: "Icon already taken" };
     player.icon = iconId;
+    player.color = ICON_COLORS[iconId];
     return { ok: true };
   }
 
@@ -960,20 +975,6 @@ export class Room {
 
   playerById(id) {
     return this.players.find((p) => p.id === id);
-  }
-
-  // Dev-only test helper: teleports every active player onto the same named
-  // tile with no side effects (no rent/card/buy-prompt resolution) so the
-  // same-tile token stacking UI can be checked without actually playing out
-  // a real game to get two players to land there together.
-  debugStackOnTile(tileName) {
-    const tile = this._board.find((t) => t.name.includes(tileName));
-    if (!tile) return { error: "No tile matches that name" };
-    for (const player of this.activePlayers()) {
-      player.position = tile.id;
-    }
-    this.pushLog(`[debug] Stacked every player on ${tile.name}.`);
-    return { ok: true };
   }
 
   toState() {

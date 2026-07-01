@@ -166,16 +166,6 @@ io.on("connection", (socket) => {
     broadcastState(room.code);
   });
 
-  // Dev-only: teleports every active player onto one named tile so the
-  // same-tile token-stacking UI can be checked without playing a real game.
-  socket.on("debugStackOnTile", ({ tileName } = {}, cb) => {
-    const room = getRoom(socket);
-    if (!room) return cb?.({ error: "Room not found" });
-    const result = room.debugStackOnTile(tileName || "الحج");
-    if (result.ok) broadcastState(room.code);
-    cb?.(result);
-  });
-
   socket.on("payToLeaveHolding", () => {
     const room = getRoom(socket);
     if (!room) return;

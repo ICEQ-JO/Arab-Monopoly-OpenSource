@@ -1,5 +1,3 @@
-import { socket } from "../socket";
-
 // Client-side mirror of server/src/game/Room.js `calcRent()` — the server
 // never broadcasts a rent preview, so this panel recomputes it from data
 // that's already in `state` (board, ownership, rules, lastRoll). Keep this
@@ -38,8 +36,6 @@ export default function TileInfoPanel({ state, myId }) {
   if (!isOwnable) return null;
 
   const owned = state.ownership[tile.id];
-  const pending = state.pendingAction;
-  const isPendingBuy = pending?.type === "awaitBuy" && pending.tileId === tile.id;
   const owner = owned ? state.players.find((p) => p.id === owned.ownerId) : null;
 
   return (
@@ -66,13 +62,6 @@ export default function TileInfoPanel({ state, myId }) {
             {owned.mortgaged && " (mortgaged)"}
           </p>
         </>
-      )}
-
-      {isPendingBuy && (
-        <div className="action-row">
-          <button className="primary" onClick={() => socket.emit("buyProperty")}>Buy</button>
-          <button onClick={() => socket.emit("declineBuy")}>Decline</button>
-        </div>
       )}
     </div>
   );
