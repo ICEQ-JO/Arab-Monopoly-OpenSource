@@ -195,6 +195,19 @@ export class Room {
     if (this.log.length > 50) this.log.pop();
   }
 
+  // Color is picked in-room (pre-game) rather than before joining -- each
+  // player owns their own choice, the host has no special say over it.
+  setPlayerColor(playerId, color) {
+    const player = this.playerById(playerId);
+    if (!player) return { error: "Not in this room" };
+    if (this.started) return { error: "Game already started" };
+    if (typeof color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(color)) return { error: "Invalid color" };
+    const taken = this.players.some((p) => p.id !== playerId && !p.left && p.color === color);
+    if (taken) return { error: "Color already taken" };
+    player.color = color;
+    return { ok: true };
+  }
+
   selectCharacter(playerId, characterId) {
     if (this.started) return { error: "Game already started" };
     if (!CHARACTER_IDS.includes(characterId)) return { error: "Invalid character" };

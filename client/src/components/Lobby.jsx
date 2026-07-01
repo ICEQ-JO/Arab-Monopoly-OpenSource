@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { socket } from "../socket";
-import LobbyBackground from "./LobbyBackground";
-
-const COLORS = [
-  "#e74c3c","#e67e22","#f1c40f","#2ecc71","#1abc9c",
-  "#3498db","#9b59b6","#e91e63","#ff5722","#00bcd4",
-];
 
 const QUOTES = [
   { text: "الناس من خوف الذل في ذل", author: "المتنبي" },
@@ -22,27 +16,11 @@ const QUOTES = [
   { text: "لا تُسرف في شيء إلا في طلب العلم", author: "ابن تيمية" },
 ];
 
-const RULE_DEFS = [
-  { key: "vacationPot",        label: "Vacation Cash Pot",      desc: "Taxes & fines fill a pot — landing on Vacation collects it all" },
-  { key: "noRentInPrison",     label: "No Rent While in Prison", desc: "Owners in the Holding Pen cannot collect rent" },
-  { key: "evenBuild",          label: "Even Build",              desc: "Houses must be built and sold evenly within a color group" },
-  { key: "doubleRentFullSet",  label: "×2 Rent (Full Set)",      desc: "Owning all tiles in a color group doubles base rent" },
-  { key: "auction",            label: "Auction on Decline",      desc: "Skipping a property sends it to auction for all players" },
-];
-
-const DEFAULT_RULES = {
-  vacationPot: true,
-  noRentInPrison: true,
-  evenBuild: true,
-  doubleRentFullSet: true,
-  auction: true,
-  startingCash: 1500,
-};
-
 const QUOTE_DURATION = 5000;
 const FADE_DURATION  = 500;
 
-// Steps: 'landing' → 'create-mode' → 'create-rules' → done
+// Steps: 'landing' → 'create-mode' → done (color and rules are picked once
+//        inside the room, not here)
 //        'landing' → 'join'
 export default function Lobby({ onJoined }) {
   // Quote cycling
@@ -50,15 +28,13 @@ export default function Lobby({ onJoined }) {
   const [fading,    setFading]    = useState(false);
 
   // Step
-  const [step, setStep] = useState("landing"); // 'landing'|'create-mode'|'create-map'|'create-rules'|'join'
+  const [step, setStep] = useState("landing"); // 'landing'|'create-mode'|'join'
 
   // Shared identity
   const [name,  setName]  = useState("");
-  const [color, setColor] = useState(null);
 
   // Create-specific
   const [gameMode, setGameMode] = useState("normal");
-  const [rules,    setRules]    = useState({ ...DEFAULT_RULES });
 
   // Join-specific
   const [code, setCode] = useState("");
@@ -138,17 +114,12 @@ export default function Lobby({ onJoined }) {
   }, []);
 
   // ── Helpers ──────────────────────────────────────────────────
-  const canProceedIdentity = name.trim() && color;
-
-  function updateRule(key, value) {
-    setRules((r) => ({ ...r, [key]: value }));
-  }
+  const canProceedIdentity = name.trim();
 
   function createRoom() {
     if (!name.trim()) return setError("Enter your name first");
-    if (!color)       return setError("Pick a color first");
     setBusy(true);
-    socket.emit("createRoom", { gameMode, name: name.trim(), color, rules }, (res) => {
+    socket.emit("createRoom", { gameMode, name: name.trim() }, (res) => {
       setBusy(false);
       if (res?.error) return setError(res.error);
       onJoined(res);
@@ -157,10 +128,9 @@ export default function Lobby({ onJoined }) {
 
   function joinRoom() {
     if (!name.trim())  return setError("Enter your name first");
-    if (!color)        return setError("Pick a color first");
     if (!code.trim())  return setError("Enter a room code");
     setBusy(true);
-    socket.emit("joinRoom", { code: code.trim(), name: name.trim(), color }, (res) => {
+    socket.emit("joinRoom", { code: code.trim(), name: name.trim() }, (res) => {
       setBusy(false);
       if (res?.error) return setError(res.error);
       onJoined(res);
@@ -173,36 +143,16 @@ export default function Lobby({ onJoined }) {
 
   function renderIdentitySection() {
     return (
-      <>
-        <div className="lobby-input-group">
-          <label className="lobby-input-label">Your Name *</label>
-          <input
-            className="lobby-input"
-            value={name}
-            onChange={(e) => { setName(e.target.value); setError(""); }}
-            placeholder="Enter your name…"
-            maxLength={20}
-          />
-        </div>
-
-        <div className="lobby-input-group">
-          <label className="lobby-input-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>Your Color *</span>
-            {!color && <span style={{ fontSize: 9, color: "rgba(255,140,100,0.7)", fontStyle: "italic", letterSpacing: 0 }}>choose one to continue</span>}
-          </label>
-          <div className="lobby-color-picker">
-            {COLORS.map((c) => (
-              <button
-                key={c}
-                className={`lobby-color-swatch${color === c ? " selected" : ""}`}
-                style={{ background: c }}
-                onClick={() => { setColor(c); setError(""); }}
-                title={c}
-              />
-            ))}
-          </div>
-        </div>
-      </>
+      <div className="lobby-input-group">
+        <label className="lobby-input-label">Your Name *</label>
+        <input
+          className="lobby-input"
+          value={name}
+          onChange={(e) => { setName(e.target.value); setError(""); }}
+          placeholder="Enter your name…"
+          maxLength={20}
+        />
+      </div>
     );
   }
 
@@ -210,7 +160,6 @@ export default function Lobby({ onJoined }) {
   if (step === "landing") {
     return (
       <div className="lobby">
-        <LobbyBackground />
         <SoundToggle muted={muted} onToggle={toggleSound} />
         <Credits />
 
@@ -258,7 +207,6 @@ export default function Lobby({ onJoined }) {
   if (step === "join") {
     return (
       <div className="lobby">
-        <LobbyBackground />
         <SoundToggle muted={muted} onToggle={toggleSound} />
         <Credits />
         <div className="lobby-content">
@@ -268,7 +216,7 @@ export default function Lobby({ onJoined }) {
             <Ornament />
           </div>
           <div className="lobby-form-card visible">
-            <WizardHeader step={2} total={2} title="Join a Room" onBack={() => go("landing")} />
+            <WizardHeader step={1} total={1} title="Join a Room" onBack={() => go("landing")} />
 
             <div className="lobby-input-group">
               <label className="lobby-input-label">Room Code</label>
@@ -296,7 +244,6 @@ export default function Lobby({ onJoined }) {
   if (step === "create-mode") {
     return (
       <div className="lobby">
-        <LobbyBackground />
         <SoundToggle muted={muted} onToggle={toggleSound} />
         <Credits />
         <div className="lobby-content">
@@ -306,7 +253,7 @@ export default function Lobby({ onJoined }) {
             <Ornament />
           </div>
           <div className="lobby-form-card visible">
-            <WizardHeader step={1} total={2} title="Choose Game Mode" onBack={() => go("landing")} />
+            <WizardHeader step={1} total={1} title="Choose Game Mode" onBack={() => go("landing")} />
 
             <div className="mode-picker">
               <button
@@ -321,76 +268,9 @@ export default function Lobby({ onJoined }) {
 
             <p className="lobby-mode-desc">
               {gameMode === "normal"
-                ? "Classic property trading — choose your rules, then battle it out."
+                ? "Classic property trading — pick your color and rules once you're in the room."
                 : "Every player picks a unique character with special powers before the game starts."}
             </p>
-
-            <button
-              className="lobby-btn-primary"
-              onClick={() => go("create-rules")}
-            >
-              Next →
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Create: Rules step ────────────────────────────────────────
-  if (step === "create-rules") {
-    return (
-      <div className="lobby">
-        <LobbyBackground />
-        <SoundToggle muted={muted} onToggle={toggleSound} />
-        <Credits />
-        <div className="lobby-content">
-          <div className="lobby-title-float">
-            <Ornament />
-            <h1 className="lobby-game-title">Monoboly عرب</h1>
-            <Ornament />
-          </div>
-          <div className="lobby-form-card visible">
-            <WizardHeader
-              step={2}
-              total={2}
-              title="Game Rules"
-              onBack={() => go("create-mode")}
-            />
-
-            <div className="rules-panel-body" style={{ border: "1px solid rgba(201,150,10,0.2)", borderRadius: 10, overflow: "hidden" }}>
-              {RULE_DEFS.map(({ key, label, desc }) => (
-                <div key={key} className="rule-row">
-                  <div className="rule-label">
-                    <span className="rule-name">{label}</span>
-                    <span className="rule-desc">{desc}</span>
-                  </div>
-                  <label className="rule-switch">
-                    <input
-                      type="checkbox"
-                      checked={!!rules[key]}
-                      onChange={(e) => updateRule(key, e.target.checked)}
-                    />
-                    <span className="rule-switch-track" />
-                  </label>
-                </div>
-              ))}
-
-              {/* Starting Cash */}
-              <div className="rule-row">
-                <div className="rule-label">
-                  <span className="rule-name">Starting Cash</span>
-                  <span className="rule-desc">How much money each player starts with</span>
-                </div>
-                <input
-                  type="number"
-                  className="rule-cash-input"
-                  value={rules.startingCash ?? 1500}
-                  min={500} max={5000} step={500}
-                  onChange={(e) => updateRule("startingCash", Number(e.target.value))}
-                />
-              </div>
-            </div>
 
             {error && <p className="lobby-error">{error}</p>}
 

@@ -8,16 +8,9 @@ import Hud from "./components/Hud";
 import PlayerCard from "./components/PlayerCard";
 import PlayersPanel from "./components/PlayersPanel";
 import TradeModal from "./components/TradeModal";
-import LobbyBackground from "./components/LobbyBackground";
+import RulesPanel from "./components/RulesPanel";
+import ColorPicker from "./components/ColorPicker";
 import "./App.css";
-
-const RULE_DEFS = [
-  { key: "vacationPot",      label: "Vacation Cash Pot",       desc: "Taxes & fines go into a pot — landing on Vacation collects it all" },
-  { key: "noRentInPrison",   label: "No Rent While in Prison",  desc: "Owners in the Holding Pen cannot collect rent" },
-  { key: "evenBuild",        label: "Even Build",               desc: "Houses must be built and sold evenly within a color group" },
-  { key: "doubleRentFullSet",label: "x2 Rent (Full Set)",       desc: "Owning all tiles in a color group doubles base rent" },
-  { key: "auction",          label: "Auction on Decline",       desc: "Skipping a property sends it to auction for all players" },
-];
 
 function App() {
   const [joined, setJoined] = useState(false);
@@ -25,7 +18,6 @@ function App() {
   const [myId, setMyId] = useState(null);
   const [rejoining, setRejoining] = useState(false);
   const [tradeOpen, setTradeOpen] = useState(false);
-  const [rulesOpen, setRulesOpen] = useState(false);
 
   useEffect(() => {
     function attemptRejoin() {
@@ -78,21 +70,15 @@ function App() {
     setMyId(null);
   }
 
-  function updateRule(key, value) {
-    const rules = { ...state.rules, [key]: value };
-    socket.emit("updateRoomSettings", { rules });
-  }
-
   if (rejoining) {
     return (
       <div className="lobby">
-        <LobbyBackground />
         <div className="lobby-content">
           <div className="lobby-title-float">
             <h1 className="lobby-game-title">Monoboly عرب</h1>
           </div>
           <div className="lobby-form-card visible">
-            <p style={{ margin: 0, textAlign: "center", color: "rgba(201,150,10,0.7)", fontStyle: "italic", fontSize: 13 }}>Reconnecting…</p>
+            <p style={{ margin: 0, textAlign: "center", color: "var(--text-dim)", fontStyle: "italic", fontSize: 13 }}>Reconnecting…</p>
           </div>
         </div>
       </div>
@@ -111,8 +97,6 @@ function App() {
     const rules = state.rules || {};
     return (
       <div className="lobby">
-        <LobbyBackground />
-
         <div className="lobby-credits">
           <span className="lobby-credits-label">Made by</span>
           <span className="lobby-credits-name">Khalid Khudari</span>
@@ -165,50 +149,14 @@ function App() {
               ))}
             </div>
 
-            {/* Game rules panel */}
-            <div className="rules-panel">
-              <div className="rules-panel-header" onClick={() => setRulesOpen((o) => !o)}>
-                <span>⚙ Game Rules</span>
-                <span className={`rules-panel-toggle-icon${rulesOpen ? " open" : ""}`}>▼</span>
-              </div>
-              {rulesOpen && (
-                <div className="rules-panel-body">
-                  {RULE_DEFS.map(({ key, label, desc }) => (
-                    <div key={key} className={`rule-row${!isHost ? " rule-row-readonly" : ""}`}>
-                      <div className="rule-label">
-                        <span className="rule-name">{label}</span>
-                        <span className="rule-desc">{desc}</span>
-                      </div>
-                      <label className="rule-switch">
-                        <input
-                          type="checkbox"
-                          checked={!!rules[key]}
-                          disabled={!isHost}
-                          onChange={(e) => updateRule(key, e.target.checked)}
-                        />
-                        <span className="rule-switch-track" />
-                      </label>
-                    </div>
-                  ))}
-                  <div className={`rule-row${!isHost ? " rule-row-readonly" : ""}`}>
-                    <div className="rule-label">
-                      <span className="rule-name">Starting Cash</span>
-                      <span className="rule-desc">How much money each player starts with</span>
-                    </div>
-                    <input
-                      type="number"
-                      className="rule-cash-input"
-                      value={rules.startingCash ?? 1500}
-                      disabled={!isHost}
-                      min={500}
-                      max={5000}
-                      step={500}
-                      onChange={(e) => updateRule("startingCash", Number(e.target.value))}
-                    />
-                  </div>
-                </div>
-              )}
+            {/* Your color */}
+            <div className="lobby-input-group">
+              <label className="lobby-input-label">Your Color</label>
+              <ColorPicker players={state.players} myId={myId} />
             </div>
+
+            {/* Game rules panel */}
+            <RulesPanel rules={rules} isHost={isHost} />
 
             {/* Status / action */}
             {isHost ? (
@@ -249,8 +197,8 @@ function App() {
   return (
     <div className="game-screen">
       {hasCard
-        ? <PlayerCard player={me} />
-        : <PlayersPanel state={state} myId={myId} onOpenTrade={() => setTradeOpen(true)} />
+        ? <PlayerCard player={me} onLeave={handleLeave} />
+        : <PlayersPanel state={state} myId={myId} onOpenTrade={() => setTradeOpen(true)} onLeave={handleLeave} />
       }
 
       <BoardClassic state={state} myId={myId} />

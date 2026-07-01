@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { socket } from "../socket";
 
-export default function PlayersPanel({ state, myId, onOpenTrade }) {
+export default function PlayersPanel({ state, myId, onOpenTrade, onLeave }) {
   const { players, roomCode, hostId, started, log = [], winnerId } = state;
   const me = players.find((p) => p.id === myId);
   const isHost = hostId === myId;
 
   function startGame() { socket.emit("startGame"); }
-  function leaveRoom() { socket.emit("leaveRoom"); }
 
   const pendingTrades = (state.trades || []).filter((t) => t.toId === myId).length;
 
@@ -19,7 +18,7 @@ export default function PlayersPanel({ state, myId, onOpenTrade }) {
           <span className="panel-room-label">Room</span>
           <span className="panel-room-value">{roomCode}</span>
         </div>
-        <button className="panel-leave-btn" onClick={leaveRoom}>Leave</button>
+        <button className="panel-leave-btn" onClick={onLeave}>Leave</button>
       </div>
 
       {/* Winner banner */}
