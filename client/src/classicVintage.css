@@ -271,26 +271,45 @@
 }
 
 /* ---------- Player tokens ---------- */
-.cv2-tokens {
+/* Tokens live in their own grid overlay on top of the whole board (see
+   .cv2-token-layer below), NOT nested inside a .cv2-tile -- every tile has
+   `overflow: hidden` (needed to keep long names/badges from spilling), which
+   would otherwise clip a token the instant it's elevated or stacked past the
+   tile's own box. Rendering the overlay as a board-wide sibling with its own
+   (identical) grid template keeps each stack aligned to its tile's cell while
+   staying free to rise/overlap without ever being clipped by tile edges. */
+.cv2-token-layer {
   position: absolute;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 5;
+  display: grid;
+  z-index: 50;
   pointer-events: none;
 }
 
-/* Outer wrapper: fixed size + static stacking offset only. Percentage
-   transforms resolve against the element's OWN box (unlike percentage
-   margins, which resolve against the flex container) so this is what
-   actually keeps the fan-out centered on the tile regardless of tile size. */
-.cv2-token {
+.cv2-token-cell {
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Outer wrapper: every token is absolutely anchored to the CELL's center
+   (not laid out in normal flex flow -- flex would place same-size siblings
+   side by side before any transform even runs, so a translateX offset just
+   pushed them further apart instead of overlapping them). All tokens start
+   from the exact same center point via `translate(-50%, -50%)`, then each
+   later occupant is nudged right from that shared point by only 30% of its
+   own width, so it visibly overlaps the ones before it instead of merely
+   sitting next to them, with a higher z-index so it's drawn on top -- like
+   two coins stacked at a steep angle rather than fanned out across the tile. */
+.cv2-token {
+  position: absolute;
+  top: 50%;
+  left: 50%;
   width: clamp(19px, 3.9vw, 39px);
   aspect-ratio: 1;
-  transform: translateX(calc((var(--i, 0) - (var(--n, 1) - 1) / 2) * 60%));
-  z-index: calc(10 + var(--i, 0));
+  transform: translate(-50%, -50%) translateX(calc(var(--i, 0) * 30%));
+  z-index: calc(20 + var(--i, 0));
   transition: transform 0.2s ease;
 }
 
@@ -315,7 +334,11 @@
   border-radius: 50%;
   background: var(--c);
   border: 2.5px solid #1a1a1a;
-  box-shadow: 0 3px 4px rgba(0, 0, 0, 0.4);
+  /* Bigger, softer, further-offset shadow than a piece flush on the tile
+     would cast -- this is what actually sells "hovering above the board"
+     rather than the lift transform alone (a token sitting right on top of
+     its own shadow reads as glued down no matter how high it's translated). */
+  box-shadow: 0 9px 10px rgba(0, 0, 0, 0.45), 0 3px 4px rgba(0, 0, 0, 0.35);
 }
 
 /* Icon variant: player picked one of the flat nationality icons instead of
@@ -364,9 +387,11 @@
   animation-delay: var(--delay, 0s);
 }
 
+/* Baseline is a permanent -14% lift, not 0 -- the token never actually rests
+   flush on the tile, it only bobs between "elevated" and "more elevated". */
 @keyframes cv2-token-bob {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-18%); }
+  0%, 100% { transform: translateY(-14%); }
+  50%      { transform: translateY(-30%); }
 }
 
 /* Idle eyes: a slow glance left/right for personality, then a quick blink
@@ -386,11 +411,11 @@
 }
 
 @keyframes cv2-token-hop {
-  0%   { transform: translateY(0) scale(1, 1); }
-  30%  { transform: translateY(-65%) scale(0.85, 1.2); }
-  55%  { transform: translateY(-90%) scale(1.1, 0.85); }
-  80%  { transform: translateY(-12%) scale(0.92, 1.08); }
-  100% { transform: translateY(0) scale(1, 1); }
+  0%   { transform: translateY(-14%) scale(1, 1); }
+  30%  { transform: translateY(-72%) scale(0.85, 1.2); }
+  55%  { transform: translateY(-96%) scale(1.1, 0.85); }
+  80%  { transform: translateY(-22%) scale(0.92, 1.08); }
+  100% { transform: translateY(-14%) scale(1, 1); }
 }
 
 .cv2-token--hop {
@@ -437,8 +462,8 @@
 }
 
 @keyframes cv2-token-glow {
-  0%, 100% { box-shadow: 0 3px 4px rgba(0,0,0,0.4), 0 0 0 2px rgba(255,255,255,0.9), 0 0 8px 3px rgba(255,215,0,0.55); }
-  50%      { box-shadow: 0 3px 4px rgba(0,0,0,0.4), 0 0 0 2px rgba(255,255,255,0.9), 0 0 14px 5px rgba(255,215,0,0.9); }
+  0%, 100% { box-shadow: 0 9px 10px rgba(0,0,0,0.45), 0 3px 4px rgba(0,0,0,0.35), 0 0 0 2px rgba(255,255,255,0.9), 0 0 8px 3px rgba(255,215,0,0.55); }
+  50%      { box-shadow: 0 9px 10px rgba(0,0,0,0.45), 0 3px 4px rgba(0,0,0,0.35), 0 0 0 2px rgba(255,255,255,0.9), 0 0 14px 5px rgba(255,215,0,0.9); }
 }
 
 .cv2-token--active .cv2-token-face {
@@ -630,6 +655,24 @@
   box-shadow: 1px 2px 0 #7a0000;
 }
 
+/* Dev-only test button -- visually distinct (small, dashed, grey) from the
+   real roll button so it never reads as a normal game action. */
+.cv2-debug-stack-btn {
+  font-size: 11px;
+  background: #444;
+  border: 2px dashed #999;
+  box-shadow: none;
+  padding: 5px 10px;
+  margin-top: 4px;
+  opacity: 0.8;
+}
+
+.cv2-debug-stack-btn:hover {
+  opacity: 1;
+  transform: none;
+  box-shadow: none;
+}
+
 .cv2-turn-status {
   font-family: Georgia, "Times New Roman", "Amiri", serif;
   font-size: clamp(12px, 1.4vw, 15px);
@@ -675,3 +718,15 @@
   box-shadow: 0 0 0 1px rgba(0,0,0,0.35);
   flex-shrink: 0;
 }
+
+/* ---------- Clickable tiles + property info card ---------- */
+.cv2-tile-clickable {
+  cursor: pointer;
+}
+
+.cv2-tile-selected {
+  outline: 3px solid #c9960a;
+  outline-offset: -3px;
+  z-index: 3;
+}
+

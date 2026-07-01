@@ -962,6 +962,20 @@ export class Room {
     return this.players.find((p) => p.id === id);
   }
 
+  // Dev-only test helper: teleports every active player onto the same named
+  // tile with no side effects (no rent/card/buy-prompt resolution) so the
+  // same-tile token stacking UI can be checked without actually playing out
+  // a real game to get two players to land there together.
+  debugStackOnTile(tileName) {
+    const tile = this._board.find((t) => t.name.includes(tileName));
+    if (!tile) return { error: "No tile matches that name" };
+    for (const player of this.activePlayers()) {
+      player.position = tile.id;
+    }
+    this.pushLog(`[debug] Stacked every player on ${tile.name}.`);
+    return { ok: true };
+  }
+
   toState() {
     return {
       code: this.code,

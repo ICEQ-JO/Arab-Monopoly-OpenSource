@@ -151,6 +151,35 @@ export function IconCheck(props) {
   );
 }
 
+export function IconArrowUp(props) {
+  return (
+    <svg {...common} {...props}>
+      <path d="M10 16V4" />
+      <path d="M5 9l5-5 5 5" />
+    </svg>
+  );
+}
+
+export function IconArrowDown(props) {
+  return (
+    <svg {...common} {...props}>
+      <path d="M10 4v12" />
+      <path d="M5 11l5 5 5-5" />
+    </svg>
+  );
+}
+
+export function IconTrash(props) {
+  return (
+    <svg {...common} {...props}>
+      <path d="M4 6h12" />
+      <path d="M8 6V4.5A1.5 1.5 0 0 1 9.5 3h1A1.5 1.5 0 0 1 12 4.5V6" />
+      <path d="M5.5 6 6.2 16a1.5 1.5 0 0 0 1.5 1.4h4.6a1.5 1.5 0 0 0 1.5-1.4L14.5 6" />
+      <path d="M8.5 9.5v4M11.5 9.5v4" />
+    </svg>
+  );
+}
+
 export const TILE_ICON = {
   start: IconHome,
   tax: IconTax,

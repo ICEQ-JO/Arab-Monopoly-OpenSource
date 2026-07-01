@@ -166,6 +166,16 @@ io.on("connection", (socket) => {
     broadcastState(room.code);
   });
 
+  // Dev-only: teleports every active player onto one named tile so the
+  // same-tile token-stacking UI can be checked without playing a real game.
+  socket.on("debugStackOnTile", ({ tileName } = {}, cb) => {
+    const room = getRoom(socket);
+    if (!room) return cb?.({ error: "Room not found" });
+    const result = room.debugStackOnTile(tileName || "الحج");
+    if (result.ok) broadcastState(room.code);
+    cb?.(result);
+  });
+
   socket.on("payToLeaveHolding", () => {
     const room = getRoom(socket);
     if (!room) return;
@@ -201,32 +211,36 @@ io.on("connection", (socket) => {
     broadcastState(room.code);
   });
 
-  socket.on("buyHouse", ({ tileId }) => {
+  socket.on("buyHouse", ({ tileId }, cb) => {
     const room = getRoom(socket);
-    if (!room) return;
-    room.buyHouse(getPlayerId(socket), tileId);
-    broadcastState(room.code);
+    if (!room) return cb?.({ error: "Room not found" });
+    const result = room.buyHouse(getPlayerId(socket), tileId);
+    if (result.ok) broadcastState(room.code);
+    cb?.(result);
   });
 
-  socket.on("sellHouse", ({ tileId }) => {
+  socket.on("sellHouse", ({ tileId }, cb) => {
     const room = getRoom(socket);
-    if (!room) return;
-    room.sellHouse(getPlayerId(socket), tileId);
-    broadcastState(room.code);
+    if (!room) return cb?.({ error: "Room not found" });
+    const result = room.sellHouse(getPlayerId(socket), tileId);
+    if (result.ok) broadcastState(room.code);
+    cb?.(result);
   });
 
-  socket.on("mortgageProperty", ({ tileId }) => {
+  socket.on("mortgageProperty", ({ tileId }, cb) => {
     const room = getRoom(socket);
-    if (!room) return;
-    room.mortgageProperty(getPlayerId(socket), tileId);
-    broadcastState(room.code);
+    if (!room) return cb?.({ error: "Room not found" });
+    const result = room.mortgageProperty(getPlayerId(socket), tileId);
+    if (result.ok) broadcastState(room.code);
+    cb?.(result);
   });
 
-  socket.on("unmortgageProperty", ({ tileId }) => {
+  socket.on("unmortgageProperty", ({ tileId }, cb) => {
     const room = getRoom(socket);
-    if (!room) return;
-    room.unmortgageProperty(getPlayerId(socket), tileId);
-    broadcastState(room.code);
+    if (!room) return cb?.({ error: "Room not found" });
+    const result = room.unmortgageProperty(getPlayerId(socket), tileId);
+    if (result.ok) broadcastState(room.code);
+    cb?.(result);
   });
 
   socket.on("placeBid", ({ auctionId, amount }) => {

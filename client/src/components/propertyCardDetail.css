@@ -1,0 +1,235 @@
+/* ============================================================
+   Property Detail Card ("Title Deed", expanded) — pcard-detail-*
+   namespace. Separate stylesheet from propertyCard.css on purpose --
+   this is the popup shown when a board tile is clicked, and needs to
+   coexist with the plain title-deed card used elsewhere (properties
+   list, trade view) without the two bleeding into each other.
+   Same vintage parchment/ink language as propertyCard.css and the
+   board itself (classicVintage.css): ivory card stock, thick black
+   border, Georgia serif, gold ornament. Colors are fixed thematic
+   values, not theme-variable driven.
+   ============================================================ */
+
+.pcard-detail {
+  width: 220px;
+  background: #faf6e8;
+  border: 3px solid #111;
+  border-radius: 10px;
+  box-shadow: 4px 5px 0 #111;
+  font-family: Georgia, "Times New Roman", "Amiri", serif;
+  color: #2a1c0d;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.pcard-detail-band {
+  padding: 10px 12px 8px;
+  text-align: center;
+  border-bottom: 2px solid #111;
+}
+
+.pcard-detail-band-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #fff8e7;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.35);
+}
+
+.pcard-detail-body {
+  padding: 14px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pcard-detail-name {
+  margin: 0 0 2px;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #111;
+}
+
+.pcard-detail-rule {
+  height: 2px;
+  background: #111;
+  margin: 2px 0 6px;
+  position: relative;
+}
+
+.pcard-detail-rule::after {
+  content: "◆";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: #faf6e8;
+  color: #c9960a;
+  font-size: 9px;
+  padding: 0 6px;
+}
+
+.pcard-detail-rule--thin {
+  height: 1px;
+  background: #a78c54;
+}
+
+.pcard-detail-rule--thin::after {
+  display: none;
+}
+
+.pcard-detail-rent-base {
+  margin: 0 0 4px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.pcard-detail-rent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pcard-detail-rent-row,
+.pcard-detail-hotel-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  padding: 1px 3px;
+}
+
+.pcard-detail-rent-row.current,
+.pcard-detail-hotel-row.current {
+  background: rgba(201, 150, 10, 0.18);
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.pcard-detail-hotel-row {
+  margin: 4px 0 0;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.pcard-detail-footnote {
+  margin: 0;
+  font-size: 10px;
+  font-style: italic;
+  color: #7a6840;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.pcard-detail--mortgaged .pcard-detail-rent-base,
+.pcard-detail--mortgaged .pcard-detail-rent-list,
+.pcard-detail--mortgaged .pcard-detail-hotel-row {
+  opacity: 0.55;
+}
+
+.pcard-detail-mortgaged-stamp {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-16deg);
+  border: 3px solid #a32d2d;
+  border-radius: 6px;
+  color: #a32d2d;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  padding: 3px 12px;
+  background: rgba(250, 246, 232, 0.85);
+}
+
+/* ---------- Owner row ---------- */
+.pcard-detail-owner-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.pcard-detail-owner-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #111;
+  box-shadow: 0 0 0 2px var(--owner-ring, #c9960a);
+  background: #fff8e7;
+}
+
+.pcard-detail-owner-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #111;
+}
+
+/* ---------- Action buttons ---------- */
+.pcard-detail-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding-top: 6px;
+}
+
+.pcard-detail-action-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid #111;
+  background: #e6d6a8;
+  color: #2a1c0d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 #111;
+  transition: transform 0.08s, box-shadow 0.08s, background 0.15s;
+  font-size: 16px;
+}
+
+.pcard-detail-action-btn:hover:not(:disabled) {
+  background: #f3e8c9;
+}
+
+.pcard-detail-action-btn:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 #111;
+}
+
+.pcard-detail-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pcard-detail-action-btn--danger {
+  background: #f0c8c8;
+}
+
+.pcard-detail-action-btn--danger:hover:not(:disabled) {
+  background: #e8a9a9;
+}
+
+.pcard-detail-error {
+  margin: 6px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  color: #a32d2d;
+}
