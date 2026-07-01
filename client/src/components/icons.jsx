@@ -134,6 +134,23 @@ export function IconTrophy(props) {
   );
 }
 
+export function IconCopy(props) {
+  return (
+    <svg {...common} {...props}>
+      <rect x="7" y="7" width="10" height="10" rx="1.5" />
+      <path d="M13 7V4.5A1.5 1.5 0 0 0 11.5 3h-8A1.5 1.5 0 0 0 2 4.5v8A1.5 1.5 0 0 0 3.5 14H7" />
+    </svg>
+  );
+}
+
+export function IconCheck(props) {
+  return (
+    <svg {...common} {...props}>
+      <path d="M4 10.5 8 14.5 16 6" />
+    </svg>
+  );
+}
+
 export const TILE_ICON = {
   start: IconHome,
   tax: IconTax,

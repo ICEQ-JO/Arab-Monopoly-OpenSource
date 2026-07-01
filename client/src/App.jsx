@@ -10,6 +10,7 @@ import TradeModal from "./components/TradeModal";
 import RulesPanel from "./components/RulesPanel";
 import IconPicker from "./components/IconPicker";
 import ThemeToggle from "./components/ThemeToggle";
+import { IconCopy, IconCheck } from "./components/icons";
 import "./App.css";
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
   const [rejoining, setRejoining] = useState(false);
   const [tradeOpen, setTradeOpen] = useState(false);
   const [theme, setTheme] = useState(getStoredTheme);
+  const [codeCopied, setCodeCopied] = useState(false);
 
   useEffect(() => {
     applyTheme(theme);
@@ -26,6 +28,13 @@ function App() {
 
   function toggleTheme() {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
+  }
+
+  function copyRoomCode() {
+    navigator.clipboard.writeText(state.code).then(() => {
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 1500);
+    });
   }
 
   useEffect(() => {
@@ -131,7 +140,17 @@ function App() {
             {/* Room code hero */}
             <div className="waitroom-code-block">
               <div className="waitroom-code-label">Room Code</div>
-              <div className="waitroom-code">{state.code}</div>
+              <div className="waitroom-code-row">
+                <div className="waitroom-code">{state.code}</div>
+                <button
+                  className="waitroom-copy-btn"
+                  onClick={copyRoomCode}
+                  title="Copy room code"
+                  aria-label="Copy room code"
+                >
+                  {codeCopied ? <IconCheck /> : <IconCopy />}
+                </button>
+              </div>
               <div className="waitroom-code-hint">Share this with friends</div>
             </div>
 
