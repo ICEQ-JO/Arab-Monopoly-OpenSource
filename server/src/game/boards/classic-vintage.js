@@ -78,7 +78,7 @@ export const BOARD = [
   { id: 40, type: TILE_TYPES.SURPRISE,      name: "الحظ" },
   { id: 41, type: TILE_TYPES.PROPERTY,      name: "بغداد",           price: 360, ...G("salmonLeft") },
   { id: 42, type: TILE_TYPES.TRANSIT,       name: "محطة كوستر",      price: 150, rent: STATION_RENT },
-  { id: 43, type: TILE_TYPES.TREASURE,      name: "جمعية دار المسنين" },
+  { id: 43, type: TILE_TYPES.TREASURE,      name: "المرأة صندوق" },
   { id: 44, type: TILE_TYPES.PROPERTY,      name: "الطفيلة",         price: 380, ...G("tealLeft") },
   { id: 45, type: TILE_TYPES.PROPERTY,      name: "السلط",           price: 400, ...G("tealLeft") },
   { id: 46, type: TILE_TYPES.REST,          name: "عليكم الأمان" },

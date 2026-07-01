@@ -1,3 +1,6 @@
+import { useEffect, useRef, useState } from "react";
+import { socket } from "../socket";
+import Dice from "./Dice";
 import "../classicVintage.css";
 
 // Generic square-loop layout: corners sit every `sideLen` ids (0, sideLen,
@@ -76,6 +79,15 @@ function ClassicTile({ tile, owned, players, pendingTileId, sideLen }) {
 export default function BoardClassic({ state, myId }) {
   const { board, ownership, players, lastRoll, turnIndex } = state;
 
+  const [rollSeq, setRollSeq] = useState(0);
+  const prevRollRef = useRef(lastRoll);
+  useEffect(() => {
+    if (lastRoll !== prevRollRef.current) {
+      prevRollRef.current = lastRoll;
+      setRollSeq((s) => s + 1);
+    }
+  }, [lastRoll]);
+
   const sideLen = board.length / 4;
   const N = sideLen + 1;
 
@@ -94,7 +106,7 @@ export default function BoardClassic({ state, myId }) {
     : undefined;
 
   return (
-    <div className="cv2-root" style={{ width: "min(900px, 92vw)", aspectRatio: "1", margin: "0 auto" }}>
+    <div className="cv2-root" style={{ width: "min(980px, 96vw, calc(100vh - 40px))", aspectRatio: "1", margin: "0 auto" }}>
       <div
         className="cv2-board"
         style={{
@@ -119,9 +131,21 @@ export default function BoardClassic({ state, myId }) {
         <div className="cv2-center">
           <div className="cv2-title">Monoboly عرب</div>
 
-          {lastRoll && (
-            <div className="cv2-dice">{lastRoll[0]} + {lastRoll[1]}</div>
-          )}
+          <div className="cv2-dice-area">
+            <Dice roll={lastRoll} rollSeq={rollSeq} />
+            {(() => {
+              const isMyTurn = players[turnIndex]?.id === myId;
+              const pending = state.pendingAction;
+              if (isMyTurn && !pending && state.canRollAgain) {
+                return (
+                  <button className="cv2-roll-btn" onClick={() => socket.emit("rollDice")}>
+                    Roll Dice
+                  </button>
+                );
+              }
+              return null;
+            })()}
+          </div>
 
           <div className="cv2-players">
             {players.filter((p) => !p.left).map((p) => (
