@@ -33,12 +33,6 @@ export default function Hud({ state, myId }) {
       {/* Turn section */}
       {!state.winnerId && (
         <div className="hud-section">
-          <div className="hud-turn-header">
-            <h3>{isMyTurn ? "Your Turn" : `${current?.name}'s Turn`}</h3>
-            {me && (
-              <span className="hud-balance">${me.balance}</span>
-            )}
-          </div>
           <TurnCountdown deadline={state.turnDeadline} />
 
           {state.lastRoll && (

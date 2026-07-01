@@ -760,22 +760,23 @@
   background: rgba(255, 255, 255, 0.55);
   border: 2px solid #333;
   border-radius: 16px;
+  /* Scrolling stays functional, just without a visible scrollbar track. */
+  scrollbar-width: none;
+}
+.cv2-log-list::-webkit-scrollbar {
+  display: none;
 }
 
 .cv2-log-entry {
   font-size: 11px;
   color: #2a1c0d;
   padding: 4px 8px;
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  border-left: 3px solid rgba(0, 0, 0, 0.25);
-  border-radius: 5px;
   line-height: 1.35;
 }
 
 .cv2-log-entry.cv2-log-newest {
-  border-left-color: #c9960a;
-  background: rgba(201, 150, 10, 0.12);
+  color: #7a4f00;
+  font-weight: 700;
 }
 
 .cv2-log-empty {

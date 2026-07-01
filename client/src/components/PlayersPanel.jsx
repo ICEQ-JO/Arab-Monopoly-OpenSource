@@ -4,6 +4,7 @@ import ThemeToggle from "./ThemeToggle";
 export default function PlayersPanel({ state, myId, onOpenTrade, onLeave, theme, onToggleTheme }) {
   const { players, roomCode, hostId, started, winnerId } = state;
   const isHost = hostId === myId;
+  const currentPlayerId = started ? players[state.turnIndex]?.id : null;
 
   function startGame() { socket.emit("startGame"); }
 
@@ -57,7 +58,7 @@ export default function PlayersPanel({ state, myId, onOpenTrade, onLeave, theme,
       {/* Player list */}
       <div className="panel-player-list">
         {players.map((p) => {
-          const isCurrent = started && state.currentPlayerId === p.id;
+          const isCurrent = started && !state.winnerId && currentPlayerId === p.id;
           const isMe = p.id === myId;
           return (
             <div

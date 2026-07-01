@@ -723,8 +723,8 @@
   display: grid;
   grid-template-columns: minmax(280px, 340px) 1fr minmax(220px, 260px);
   grid-template-rows: minmax(0, 1fr);
-  gap: 20px;
-  padding: 20px;
+  gap: 12px;
+  padding: 14px;
   height: 100vh;
   box-sizing: border-box;
   align-items: stretch;
@@ -1175,11 +1175,12 @@
   border: 3px solid var(--border);
   border-radius: 8px;
   box-shadow: 4px 4px 0 var(--border);
-  padding: 14px;
+  padding: 10px;
   color: var(--text);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  flex: 1;
 }
 
 .my-properties-title {
@@ -1201,12 +1202,16 @@
 }
 
 /* Two cards per row; once more rows arrive than fit, this grid scrolls on
-   its own instead of pushing the rest of the left panel out of view. */
+   its own instead of pushing the rest of the left panel out of view. Fills
+   whatever vertical space is left in the panel (flex: 1) rather than a
+   fixed cap, so it's as big as the column allows. */
 .my-properties-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  max-height: 360px;
+  align-content: start;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 2px;
 }
@@ -1237,6 +1242,7 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+  flex-shrink: 0;
 }
 
 .hud-section {
@@ -1501,10 +1507,10 @@
 .game-screen-left {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 10px;
   min-height: 0;
-  max-height: 100%;
-  overflow-y: auto;
+  height: 100%;
+  overflow: hidden;
 }
 
 .players-panel-room {
@@ -1916,22 +1922,132 @@ select {
     overflow: visible;
   }
   .game-screen-left,
-  .players-panel {
+  .game-screen-right,
+  .my-properties-grid {
     max-height: none;
     height: auto;
-    overflow-y: visible;
+    overflow: visible;
   }
 }
 
-/* ══ PLAYERS PANEL (left sidebar) — REDESIGN ════════════════ */
+/* ══ PLAYERS PANEL (right sidebar) — REDESIGN ════════════════ */
+
+.game-screen-right {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+}
 
 .players-panel {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  height: 100%;
-  min-height: 0;
-  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+/* ── OPEN TRADES (right sidebar, below player list) ─────────── */
+
+.open-trades-panel {
+  background: var(--panel);
+  border: 3px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 4px 4px 0 var(--border);
+  padding: 12px 14px;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.open-trades-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.open-trades-empty {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.open-trades-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.open-trade-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: var(--panel-2);
+  border: 2px solid var(--border-light);
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: transform 0.08s, box-shadow 0.08s;
+}
+.open-trade-row:hover {
+  transform: translateY(-1px);
+  box-shadow: 2px 2px 0 var(--border);
+}
+
+.open-trade-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  flex-shrink: 0;
+}
+
+.open-trade-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.open-trade-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.open-trade-summary {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.open-trade-status {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: var(--panel);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+.open-trade-status.incoming {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--border);
 }
 
 .panel-header {
@@ -2084,10 +2200,18 @@ select {
   box-shadow: 4px 4px 0 var(--border);
   transition: all 0.2s ease;
 }
+/* Sole turn indicator (the old separate "X's Turn" header card was removed) --
+   a pulsing gold glow instead of a static box-shadow so it stays noticeable
+   without needing a dedicated header. */
 .panel-player-row.current-turn {
-  background: rgba(201,150,10,0.12);
-  border-color: rgba(201,150,10,0.5);
-  box-shadow: 0 0 12px rgba(201,150,10,0.2);
+  background: rgba(201,150,10,0.16);
+  border-color: var(--accent);
+  animation: current-turn-glow 1.8s ease-in-out infinite;
+}
+
+@keyframes current-turn-glow {
+  0%, 100% { box-shadow: 0 0 10px rgba(201,150,10,0.35), 0 0 0 1px rgba(201,150,10,0.25); }
+  50%      { box-shadow: 0 0 20px rgba(201,150,10,0.7), 0 0 0 1px rgba(201,150,10,0.45); }
 }
 .panel-player-row.bankrupt { opacity: 0.45; }
 .panel-player-row.left    { opacity: 0.35; }
@@ -2177,30 +2301,6 @@ select {
 }
 
 /* ══ HUD REDESIGN ════════════════════════════════════════════ */
-
-.hud-turn-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.hud-turn-header h3 {
-  font-size: 15px;
-  letter-spacing: 2px;
-  margin: 0;
-}
-
-.hud-balance {
-  font-size: 16px;
-  font-weight: 700;
-  font-family: "Arvo", Georgia, serif;
-  color: #d4c860;
-  background: rgba(212,200,96,0.12);
-  border: 1.5px solid rgba(212,200,96,0.3);
-  border-radius: 6px;
-  padding: 4px 12px;
-}
 
 /* Roll Dice button — large and gold-prominent */
 .hud .action-row {
@@ -2373,14 +2473,16 @@ select {
   flex: 1;
 }
 
+/* Solid accent/accent-ink pairing (not translucent yellow-on-yellow) so
+   these stay readable regardless of the modal's panel background color. */
 .trade-form-balance-badge {
   margin-left: auto;
   font-size: 14px;
   font-weight: 700;
   font-family: "Arvo", Georgia, serif;
-  color: rgba(255,220,80,0.95);
-  background: rgba(201,150,10,0.15);
-  border: 1px solid rgba(201,150,10,0.3);
+  color: var(--accent-ink);
+  background: var(--accent);
+  border: 1px solid var(--border);
   border-radius: 5px;
   padding: 2px 8px;
 }
@@ -2395,7 +2497,7 @@ select {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: rgba(201,150,10,0.6);
+  color: var(--text-dim);
   display: block;
 }
 
@@ -2403,8 +2505,11 @@ select {
   font-size: 15px;
   font-weight: 700;
   font-family: "Arvo", Georgia, serif;
-  color: rgba(255,220,80,0.95);
-  display: block;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-radius: 4px;
+  padding: 0 6px;
+  display: inline-block;
 }
 
 .trade-player-btn-balance {
