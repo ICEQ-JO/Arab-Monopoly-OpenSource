@@ -15,7 +15,7 @@ import "../classicVintage.css";
 // board has no utility tiles so those two cover every ownable tile type.
 const CLICKABLE_TYPES = ["property", "transit"];
 
-function TreasureIcon() {
+export function TreasureIcon() {
   return (
     <svg className="cv2-tile-icon" viewBox="0 0 100 84" xmlns="http://www.w3.org/2000/svg">
       <rect x="8" y="44" width="84" height="34" rx="9" fill="#f59e0b"/>
@@ -36,7 +36,7 @@ function TaxIcon() {
   return <img src="/pig.svg" className="cv2-tile-icon" alt="" />;
 }
 
-function SurpriseIcon() {
+export function SurpriseIcon() {
   return (
     <svg className="cv2-tile-icon" viewBox="0 0 60 80" xmlns="http://www.w3.org/2000/svg">
       <defs>

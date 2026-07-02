@@ -10,6 +10,7 @@ import OpenTrades from "./components/OpenTrades";
 import GameLog from "./components/GameLog";
 import TradeModal from "./components/TradeModal";
 import AuctionModal from "./components/AuctionModal";
+import CardReveal from "./components/CardReveal";
 import RulesPanel from "./components/RulesPanel";
 import IconPicker from "./components/IconPicker";
 import ThemeToggle from "./components/ThemeToggle";
@@ -266,6 +267,7 @@ function App() {
         <TradeModal state={state} myId={myId} onClose={() => setTradeOpen(false)} />
       )}
       <AuctionModal state={state} myId={myId} />
+      <CardReveal state={state} myId={myId} />
     </div>
   );
 }

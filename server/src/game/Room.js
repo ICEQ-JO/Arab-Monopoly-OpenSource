@@ -58,6 +58,11 @@ export class Room {
     this.canRollAgain = true;
     this.consecutiveDoubles = 0;
     this.rollSeq = 0;
+    // Bumped on every drawCard() -- lets the client tell "a genuinely new
+    // card was just drawn" apart from "lastCard is still describing a card
+    // from earlier this turn and got resent in an unrelated state update",
+    // the same way rollSeq disambiguates repeat dice broadcasts.
+    this.cardSeq = 0;
   }
 
   // Sets which map's tile data this room plays on. Safe to call any time
@@ -448,7 +453,8 @@ export class Room {
     const card = this[deckKey].shift();
     this.pushLog(`${player.name} drew: "${card.text}"`);
     this.applyCardEffect(player, card.effect);
-    this.lastCard = { deck: deckName, text: card.text };
+    this.lastCard = { deck: deckName, text: card.text, playerId: player.id };
+    this.cardSeq += 1;
   }
 
   applyCardEffect(player, effect) {
@@ -1093,6 +1099,7 @@ export class Room {
       canRollAgain: this.canRollAgain,
       board: this._board,
       rollSeq: this.rollSeq,
+      cardSeq: this.cardSeq,
       rules: this.rules,
       vacationPot: this.vacationPot,
     };
@@ -1121,6 +1128,7 @@ export class Room {
       canRollAgain: this.canRollAgain,
       consecutiveDoubles: this.consecutiveDoubles,
       rollSeq: this.rollSeq,
+      cardSeq: this.cardSeq,
       rules: this.rules,
       vacationPot: this.vacationPot,
     };
@@ -1157,6 +1165,7 @@ export class Room {
     room.canRollAgain = snapshot.canRollAgain ?? true;
     room.consecutiveDoubles = snapshot.consecutiveDoubles || 0;
     room.rollSeq = snapshot.rollSeq || 0;
+    room.cardSeq = snapshot.cardSeq || 0;
 
     for (const player of room.players) {
       if (!player.connected && !player.left && !player.bankrupt) {
