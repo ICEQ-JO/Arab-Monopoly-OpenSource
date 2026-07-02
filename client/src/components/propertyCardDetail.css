@@ -159,6 +159,15 @@
   opacity: 0.55;
 }
 
+/* Grey the whole card out, matching the mortgaged board tile -- targets just
+   the band + body (not the stamp below, a sibling of both) so the stamp's
+   red border/text stays legible against the now-desaturated card instead of
+   also going gray. */
+.pcard-detail--mortgaged .pcard-detail-band,
+.pcard-detail--mortgaged .pcard-detail-body {
+  filter: grayscale(0.9);
+}
+
 .pcard-detail-mortgaged-stamp {
   position: absolute;
   top: 40%;

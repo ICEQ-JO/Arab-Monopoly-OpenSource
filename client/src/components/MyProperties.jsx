@@ -1,5 +1,3 @@
-import { useState } from "react";
-import { socket } from "../socket";
 import PropertyCardDetail from "./PropertyCardDetail";
 import TransitCardDetail from "./TransitCardDetail";
 import { SurpriseIcon } from "./BoardClassic";
@@ -7,14 +5,14 @@ import { SurpriseIcon } from "./BoardClassic";
 // Left-panel grid of the current player's own title-deed cards, two per row
 // with the grid itself scrolling vertically to reveal further pairs -- reuses
 // PropertyCardDetail/TransitCardDetail (the same components the board's
-// tile-click card uses), so build/sell/mortgage stay wired to the identical
-// socket events. Covers `property` and `transit` tiles -- this board has no
-// utility tiles, so those two account for everything ownable. Owner info is
-// hidden throughout (showOwner=false) -- every card here is already known to
-// be the viewing player's own, so repeating their name/avatar on each one
-// would be pure noise.
+// tile-click card uses). Read-only (showActions=false) -- build/sell/mortgage
+// controls live on the tile-click card now, so clicking a tile is the one
+// place those actions happen. Covers `property` and `transit` tiles -- this
+// board has no utility tiles, so those two account for everything ownable.
+// Owner info is hidden throughout (showOwner=false) -- every card here is
+// already known to be the viewing player's own, so repeating their
+// name/avatar on each one would be pure noise.
 export default function MyProperties({ state, myId }) {
-  const [errors, setErrors] = useState({});
   const me = state.players.find((p) => p.id === myId);
   if (!state.started || !me) return null;
 
@@ -61,13 +59,6 @@ export default function MyProperties({ state, myId }) {
       .map(([group]) => group)
   );
 
-  function emit(tileId, event) {
-    setErrors((e) => ({ ...e, [tileId]: "" }));
-    socket.emit(event, { tileId }, (res) => {
-      if (res?.error) setErrors((e) => ({ ...e, [tileId]: res.error }));
-    });
-  }
-
   return (
     <div className="my-properties-panel">
       <span className="my-properties-title">🏠 My Properties</span>
@@ -102,9 +93,7 @@ export default function MyProperties({ state, myId }) {
                     mortgaged={mortgaged}
                     ownedCount={stationsOwned}
                     showOwner={false}
-                    onMortgage={() => emit(tile.id, mortgaged ? "unmortgageProperty" : "mortgageProperty")}
-                    canMortgage
-                    error={errors[tile.id]}
+                    showActions={false}
                   />
                 ) : (
                   <PropertyCardDetail
@@ -112,13 +101,7 @@ export default function MyProperties({ state, myId }) {
                     houses={houses}
                     mortgaged={mortgaged}
                     showOwner={false}
-                    onBuildHouse={() => emit(tile.id, "buyHouse")}
-                    onSellHouse={() => emit(tile.id, "sellHouse")}
-                    onMortgage={() => emit(tile.id, mortgaged ? "unmortgageProperty" : "mortgageProperty")}
-                    canBuildHouse={!mortgaged && houses < 5}
-                    canSellHouse={houses > 0}
-                    canMortgage={mortgaged || houses === 0}
-                    error={errors[tile.id]}
+                    showActions={false}
                   />
                 )}
               </div>

@@ -151,7 +151,7 @@ function legEasing(index, total) {
   return "linear";
 }
 
-function ClassicTile({ tile, owned, players, pendingTileId, sideLen, onSelect, isSelected }) {
+function ClassicTile({ tile, owned, players, sideLen, onSelect, isSelected }) {
   const { id, name, price, amount, groupColor, type } = tile;
   const { edge, row, col } = getLayout(id, sideLen);
   const hasIcon = type === "treasure" || type === "surprise" || type === "tax" || type === "transit" || type === "rest";
@@ -163,7 +163,6 @@ function ClassicTile({ tile, owned, players, pendingTileId, sideLen, onSelect, i
   const ownerColor = owned?.ownerId
     ? (owned.mortgaged ? "#5a5a5a" : players.find((p) => p.id === owned.ownerId)?.color)
     : null;
-  const isPending = pendingTileId === id;
   const isClickable = CLICKABLE_TYPES.includes(type);
 
   const badgeValue = price != null ? price : amount;
@@ -172,7 +171,7 @@ function ClassicTile({ tile, owned, players, pendingTileId, sideLen, onSelect, i
 
   return (
     <div
-      className={`cv2-tile ${isCorner ? "cv2-corner" : `cv2-side-${edge}`}${type === "transit" ? " cv2-transit" : ""}${type === "rest" ? " cv2-rest" : ""}${isPending ? " cv2-pending" : ""}${isClickable ? " cv2-tile-clickable" : ""}${isSelected ? " cv2-tile-selected" : ""}`}
+      className={`cv2-tile ${isCorner ? "cv2-corner" : `cv2-side-${edge}`}${type === "transit" ? " cv2-transit" : ""}${type === "rest" ? " cv2-rest" : ""}${isClickable ? " cv2-tile-clickable" : ""}${isSelected ? " cv2-tile-selected" : ""}`}
       style={{ gridRow: row, gridColumn: col, ...(!isCorner && ownerColor ? { background: ownerColor } : {}) }}
       onClick={isClickable ? (e) => onSelect(id, e.currentTarget, edge) : undefined}
     >
@@ -275,7 +274,7 @@ function TokenLayer({ players, sideLen, trackCenters, currentPlayerId, visualPos
   );
 }
 
-export default function BoardClassic({ state, myId }) {
+export default function BoardClassic({ state, myId, onTokenMovingChange }) {
   const { board, ownership, players, lastRoll, turnIndex, rollSeq } = state;
 
   // Rim tracks (row 1 / row N / col 1 / col N) are wider than inner tracks so
@@ -300,16 +299,25 @@ export default function BoardClassic({ state, myId }) {
   }, [board.length]);
 
   // Which tile's info card is currently open, if any, and its on-screen
-  // position (px, relative to the board container). Read-only here -- build/
-  // sell/mortgage controls live only in the My Properties panel now, so this
-  // card has nothing to submit and thus no error state of its own.
+  // position (px, relative to the board container). Build/sell/mortgage
+  // controls live here now (moved off the My Properties panel, which is
+  // read-only) -- propertyErrors tracks a per-tile error message the same
+  // way MyProperties.jsx did.
   const [selectedTileId, setSelectedTileId] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [cardPos, setCardPos] = useState({ top: 0, left: 0 });
+  const [propertyErrors, setPropertyErrors] = useState({});
   const boardRef = useRef(null);
   const cardRef = useRef(null);
   const selectedTileElRef = useRef(null);
   const CARD_GAP = 10;
+
+  function emitPropertyAction(tileId, event) {
+    setPropertyErrors((e) => ({ ...e, [tileId]: "" }));
+    socket.emit(event, { tileId }, (res) => {
+      if (res?.error) setPropertyErrors((e) => ({ ...e, [tileId]: res.error }));
+    });
+  }
 
   // Records which tile is open and a live reference to its DOM node (not a
   // one-time snapshot of its position -- re-measured fresh on every layout
@@ -419,6 +427,12 @@ export default function BoardClassic({ state, myId }) {
   // outright, so without this in-between state the landing was an instant cut).
   const [landingIds, setLandingIds] = useState(() => new Set());
   const LANDING_MS = 220;
+  // Marked the instant a move is detected (before the dice-tumble startDelay
+  // even begins) and only cleared once the token has fully landed, so the
+  // action buttons can block on this for the whole journey -- not just the
+  // floatingIds window -- closing the gap where a premature click (e.g. an
+  // early Buy/Decline or End Turn) would fire mid-glide.
+  const [movingIds, setMovingIds] = useState(() => new Set());
   const [celebratingIds, setCelebratingIds] = useState(() => new Set());
   const prevPositionsRef = useRef(new Map(players.map((p) => [p.id, p.position])));
   const prevRollSeqRef = useRef(rollSeq);
@@ -447,6 +461,7 @@ export default function BoardClassic({ state, myId }) {
     const timers = [];
 
     if (moves.length) {
+      setMovingIds((s) => new Set([...s, ...moves.map((m) => m.id)]));
       const startDelay = rollJustHappened ? 1000 : 0;
       timers.push(setTimeout(() => {
         playMoveSwoosh();
@@ -462,6 +477,9 @@ export default function BoardClassic({ state, myId }) {
               setLandingIds((s) => new Set(s).add(id));
               timers.push(setTimeout(() => {
                 setLandingIds((s) => {
+                  const next = new Set(s); next.delete(id); return next;
+                });
+                setMovingIds((s) => {
                   const next = new Set(s); next.delete(id); return next;
                 });
               }, LANDING_MS));
@@ -505,10 +523,11 @@ export default function BoardClassic({ state, myId }) {
   const gridTemplate = `${RIM_FR}fr repeat(${N - 2}, ${INNER_FR}fr) ${RIM_FR}fr`;
 
   const currentPlayerId = players[turnIndex]?.id;
-  const pendingAction = state.pendingAction;
-  const pendingTileId = pendingAction?.type === "awaitBuy"
-    ? players.find((p) => p.id === currentPlayerId)?.position
-    : undefined;
+  const currentTokenMoving = movingIds.has(currentPlayerId);
+
+  useEffect(() => {
+    onTokenMovingChange?.(currentTokenMoving);
+  }, [currentTokenMoving, onTokenMovingChange]);
 
   const selectedTile = selectedTileId != null ? board[selectedTileId] : null;
   const selectedOwned = selectedTileId != null ? ownership[selectedTileId] : null;
@@ -518,6 +537,9 @@ export default function BoardClassic({ state, myId }) {
   const selectedStationsOwned = selectedOwned
     ? board.filter((t) => t.type === "transit" && ownership[t.id]?.ownerId === selectedOwned.ownerId).length
     : 0;
+  // Build/sell/mortgage only make sense on a tile the viewing player actually
+  // owns -- everyone else (and unowned tiles) just see the read-only card.
+  const isMySelectedProperty = !!selectedOwned && selectedOwnerPlayer?.id === myId;
 
   return (
     <div className="cv2-root" style={{ width: "100%", height: "100%" }}>
@@ -550,7 +572,6 @@ export default function BoardClassic({ state, myId }) {
             tile={tile}
             owned={ownership[tile.id]}
             players={players}
-            pendingTileId={pendingTileId}
             sideLen={sideLen}
             onSelect={selectTile}
             isSelected={selectedTileId === tile.id}
@@ -588,7 +609,12 @@ export default function BoardClassic({ state, myId }) {
                       : null,
                   }
                 }
-                showActions={false}
+                onMortgage={() =>
+                  emitPropertyAction(selectedTile.id, selectedMortgaged ? "unmortgageProperty" : "mortgageProperty")
+                }
+                canMortgage={isMySelectedProperty}
+                showActions={isMySelectedProperty}
+                error={propertyErrors[selectedTile.id]}
               />
             ) : (
               <PropertyCardDetail
@@ -604,7 +630,16 @@ export default function BoardClassic({ state, myId }) {
                       : null,
                   }
                 }
-                showActions={false}
+                onBuildHouse={() => emitPropertyAction(selectedTile.id, "buyHouse")}
+                onSellHouse={() => emitPropertyAction(selectedTile.id, "sellHouse")}
+                onMortgage={() =>
+                  emitPropertyAction(selectedTile.id, selectedMortgaged ? "unmortgageProperty" : "mortgageProperty")
+                }
+                canBuildHouse={isMySelectedProperty && !selectedMortgaged && selectedHouses < 5}
+                canSellHouse={isMySelectedProperty && selectedHouses > 0}
+                canMortgage={isMySelectedProperty && (selectedMortgaged || selectedHouses === 0)}
+                showActions={isMySelectedProperty}
+                error={propertyErrors[selectedTile.id]}
               />
             )}
           </div>
@@ -622,6 +657,13 @@ export default function BoardClassic({ state, myId }) {
               const isMyTurn = players[turnIndex]?.id === myId;
               const pending = state.pendingAction;
               const me = players.find((p) => p.id === myId);
+              // The token is still gliding to its destination tile -- block
+              // every action (including Buy/Decline, which the server marks
+              // pending as soon as the destination is known, well before the
+              // client-side glide finishes) until it actually lands there.
+              if (isMyTurn && currentTokenMoving) {
+                return <p className="cv2-turn-status">Moving…</p>;
+              }
               // Buy/Decline takes priority over everything else -- it's the
               // action blocking the turn whenever it's pending.
               if (isMyTurn && pending?.type === "awaitBuy") {

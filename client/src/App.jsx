@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { socket } from "./socket";
 import { loadSession, saveSession, clearSession } from "./session";
 import { getStoredTheme, applyTheme } from "./theme";
@@ -26,10 +26,25 @@ function App() {
   const [tradeOpen, setTradeOpen] = useState(false);
   const [theme, setTheme] = useState(getStoredTheme);
   const [codeCopied, setCodeCopied] = useState(false);
+  // Whether the current turn's token is still gliding to its destination
+  // tile -- lifted out of BoardClassic so CardReveal can hold off popping up
+  // a drawn Surprise/Treasure card until the token has actually landed.
+  const [tokenMoving, setTokenMoving] = useState(false);
 
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
+
+  // Tracks each player's last-known position so an incoming "state" broadcast
+  // that moves someone can flip tokenMoving to true in the SAME render as the
+  // new position/card data (see handleState below). BoardClassic's own glide
+  // effect detects the same move independently to drive the visual animation
+  // and flips tokenMoving back to false once the token actually lands
+  // (via onTokenMovingChange) -- this ref only needs to catch the leading
+  // edge early enough that CardReveal never sees the new card before
+  // tokenMoving is already true, which a purely effect-driven flag (set one
+  // render after the state update lands) was consistently one render late for.
+  const prevMovePositionsRef = useRef(new Map());
 
   function toggleTheme() {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
@@ -84,6 +99,14 @@ function App() {
     }
     function handleDisconnect() {}
     function handleState(s) {
+      const prevPositions = prevMovePositionsRef.current;
+      let moved = false;
+      (s.players || []).forEach((p) => {
+        const prev = prevPositions.get(p.id);
+        if (prev !== undefined && prev !== p.position) moved = true;
+        prevPositions.set(p.id, p.position);
+      });
+      if (moved) setTokenMoving(true);
       setState(s);
     }
 
@@ -249,7 +272,7 @@ function App() {
         <MyProperties state={state} myId={myId} />
       </div>
 
-      <BoardClassic state={state} myId={myId} />
+      <BoardClassic state={state} myId={myId} onTokenMovingChange={setTokenMoving} />
 
       <div className="game-screen-right">
         <PlayersPanel
@@ -268,7 +291,7 @@ function App() {
         <TradeModal state={state} myId={myId} onClose={() => setTradeOpen(false)} />
       )}
       <AuctionModal state={state} myId={myId} />
-      <CardReveal state={state} myId={myId} />
+      <CardReveal state={state} myId={myId} tokenMoving={tokenMoving} />
       {import.meta.env.DEV && <DevTools />}
     </div>
   );
