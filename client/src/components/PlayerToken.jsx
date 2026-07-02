@@ -1,17 +1,19 @@
 import { ICONS } from "../data/icons";
 
-export default function PlayerToken({ player, stackIndex, stackTotal, leftPct, topPct, isMoving, justBought, isActiveTurn }) {
+export default function PlayerToken({ player, stackIndex, stackTotal, leftPct, topPct, glideMs, glideEase, isMoving, justBought, isActiveTurn }) {
   const wrapStyle = {
     "--c": player.color,
     "--i": stackIndex,
     "--n": stackTotal,
+    "--glide-ms": `${glideMs || 220}ms`,
+    "--glide-ease": glideEase || "ease",
     left: `${leftPct}%`,
     top: `${topPct}%`,
   };
   const innerCls = [
     "cv2-token-inner",
     isActiveTurn && "cv2-token--active",
-    isMoving && "cv2-token--hop",
+    isMoving && "cv2-token--floating",
     justBought && "cv2-token--celebrate",
   ].filter(Boolean).join(" ");
   const innerStyle = { "--delay": `${(stackIndex * 0.3).toFixed(2)}s` };

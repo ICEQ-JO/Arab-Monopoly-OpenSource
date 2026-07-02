@@ -290,11 +290,12 @@
    inline by PlayerToken from trackCenters in BoardClassic.jsx) rather than
    CSS grid placement -- grid-row/column snaps instantly and can't be
    animated, but left/top can, via the transition below. A move steps
-   `visualPositions` through each tile it passes one at a time (see the
-   effect in BoardClassic.jsx), and this transition is what turns that
-   sequence of small percentage jumps into one continuous glide along the
-   board instead of a teleport. Keep the duration in sync with GLIDE_STEP_MS
-   there so each leg finishes exactly as the next one starts.
+   `visualPositions` through only the corner tiles it turns at (not every
+   tile -- see computeLegWaypoints in BoardClassic.jsx), and --glide-ms/
+   --glide-ease (set inline per token by PlayerToken, one pair per leg) is
+   what lets a long straight run glide proportionally slower/faster than a
+   short one instead of every leg taking the same fixed time regardless of
+   distance.
    All tokens are anchored the same way at their tile's center via
    `translate(-50%, -50%)`, then each later occupant on that tile is nudged
    right from that shared point by only 30% of its own width, so it visibly
@@ -307,13 +308,15 @@
   aspect-ratio: 1;
   transform: translate(-50%, -50%) translateX(calc(var(--i, 0) * 30%));
   z-index: calc(20 + var(--i, 0));
-  transition: left 0.11s linear, top 0.11s linear, transform 0.2s ease;
+  transition: left var(--glide-ms, 220ms) var(--glide-ease, ease),
+              top var(--glide-ms, 220ms) var(--glide-ease, ease),
+              transform 0.2s ease;
 }
 
-/* Inner element: carries all animations (bob/hop/celebrate), kept separate
-   from the outer stacking transform above so they don't clobber each other
-   (an `animation`'s keyframes fully replace `transform`, they don't compose
-   with a sibling static transform on the same element). */
+/* Inner element: carries all animations (bob/floating/celebrate), kept
+   separate from the outer stacking transform above so they don't clobber
+   each other (an `animation`'s keyframes fully replace `transform`, they
+   don't compose with a sibling static transform on the same element). */
 .cv2-token-inner {
   position: absolute;
   inset: 0;
@@ -407,28 +410,18 @@
   50%      { transform: translateX(-50%) scale(1.06, 0.92); }
 }
 
-@keyframes cv2-token-hop {
-  0%   { transform: translateY(-14%) scale(1, 1); }
-  30%  { transform: translateY(-72%) scale(0.85, 1.2); }
-  55%  { transform: translateY(-96%) scale(1.1, 0.85); }
-  80%  { transform: translateY(-22%) scale(0.92, 1.08); }
-  100% { transform: translateY(-14%) scale(1, 1); }
-}
-
-.cv2-token--hop {
-  animation: cv2-token-hop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) 1;
-  animation-fill-mode: both;
-}
-
-/* Mid-jump, the mouth pops into a small surprised "o" for a beat of extra
-   character, then settles back into the default smile. */
-@keyframes cv2-token-hop-mouth {
-  0%, 100% { width: 46%; height: 18%; border-radius: 0 0 50% 50%; transform: translateX(-50%); }
-  45%, 65% { width: 26%; height: 26%; border-radius: 50%; transform: translateX(-50%) translateY(-8%); }
-}
-
-.cv2-token--hop .cv2-token-mouth {
-  animation: cv2-token-hop-mouth 0.55s ease-in-out 1;
+/* Held for the entire duration of a multi-leg glide (BoardClassic.jsx adds
+   a player to floatingIds right before its first leg starts and removes
+   them only after the last leg finishes), rather than firing once on
+   arrival -- elevation stays flat while the token is actually traveling
+   instead of spiking after the fact. `animation: none` overrides the idle
+   bob keyframe above; the transition is what eases the token up into the
+   float when a glide starts and back down to the idle baseline once it
+   ends, instead of snapping either way. */
+.cv2-token-inner.cv2-token--floating {
+  animation: none;
+  transform: translateY(-26%);
+  transition: transform 0.22s ease;
 }
 
 /* Celebrate: eyes squeeze into happy closed arcs, mouth opens into a big
@@ -685,6 +678,29 @@
   font-size: clamp(10px, 1.1vw, 12px);
   text-align: center;
   max-width: 320px;
+}
+
+/* Dev-only test control -- deliberately plain/muted so it never reads as a
+   real game action next to the roll/end-turn button. */
+.cv2-debug-stack-btn {
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: #6b5a3a;
+  background: transparent;
+  border: 1px dashed #a89568;
+  box-shadow: none;
+  padding: 4px 10px;
+  cursor: pointer;
+  text-shadow: none;
+  border-radius: 4px;
+}
+
+.cv2-debug-stack-btn:hover {
+  background: rgba(168, 149, 104, 0.15);
+  transform: none;
+  box-shadow: none;
 }
 
 /* ---------- Clickable tiles + property info card ---------- */

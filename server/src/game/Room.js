@@ -1037,6 +1037,19 @@ export class Room {
     return this.players.find((p) => p.id === id);
   }
 
+  // Dev-only: teleports every active player onto one randomly chosen tile so
+  // the same-tile token-stacking UI can be checked without playing a real
+  // game up to the point where players naturally collide.
+  debugStackOnRandomTile() {
+    const active = this.activePlayers();
+    if (active.length < 2) return { error: "Need at least 2 active players to test stacking" };
+    const tileId = Math.floor(Math.random() * this._totalTiles);
+    active.forEach((p) => { p.position = tileId; });
+    const tile = this._board[tileId];
+    this.pushLog(`[debug] Stacked every player on ${tile.name} (#${tileId}).`);
+    return { ok: true, tileId };
+  }
+
   toState() {
     return {
       code: this.code,

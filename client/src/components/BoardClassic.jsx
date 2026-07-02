@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { socket } from "../socket";
 import { playMoveSwoosh, primeAudio } from "../sfx";
 import Dice from "./Dice";
@@ -110,6 +110,40 @@ function computeForwardPath(from, to, totalTiles) {
   return path;
 }
 
+// A move only needs to stop at the corners it turns at, not every tile it
+// passes over -- the rim is straight between corners, so gliding straight
+// to each corner (rather than snapping tile by tile) is what lets the
+// token move continuously instead of visibly stopping along the way. Each
+// leg also carries how many original tiles it covers, so a long straight
+// run can be given proportionally more time than a short one -- otherwise
+// a leg crossing 10 tiles would take exactly as long as one crossing 1.
+function computeLegWaypoints(from, to, sideLen, totalTiles) {
+  const path = computeForwardPath(from, to, totalTiles);
+  const legs = [];
+  let legStart = 0;
+  path.forEach((tileId, idx) => {
+    const isCorner = tileId % sideLen === 0;
+    if (isCorner || idx === path.length - 1) {
+      legs.push({ tileId, tileCount: idx + 1 - legStart });
+      legStart = idx + 1;
+    }
+  });
+  return legs;
+}
+
+// A single leg eases in and out on its own (feels natural in the very
+// common case of a move that only crosses one edge). For a move spanning
+// several legs, only the first eases in and only the last eases out --
+// the legs in between run at constant speed -- so the whole multi-leg trip
+// reads as one continuous accelerate/cruise/decelerate motion instead of
+// visibly re-accelerating at every corner it passes through.
+function legEasing(index, total) {
+  if (total === 1) return "ease-in-out";
+  if (index === 0) return "ease-in";
+  if (index === total - 1) return "ease-out";
+  return "linear";
+}
+
 function ClassicTile({ tile, owned, players, pendingTileId, sideLen, onSelect, isSelected }) {
   const { id, name, price, amount, groupColor, type } = tile;
   const { edge, row, col } = getLayout(id, sideLen);
@@ -182,23 +216,20 @@ function ClassicTile({ tile, owned, players, pendingTileId, sideLen, onSelect, i
 // Renders every occupied tile's token stack in a single board-wide overlay,
 // as a sibling of the tiles rather than nested inside one (so a token is
 // never clipped by a tile's own `overflow: hidden` while elevated/stacked).
-// Each token is placed with plain left/top percentages (trackCenters) and a
-// CSS transition on those, not CSS grid placement -- grid-row/column can't
-// be animated, but a percentage can, which is what lets a move glide
-// smoothly between tiles instead of snapping.
-function TokenLayer({ players, sideLen, trackCenters, currentPlayerId, visualPositions, movingIds, celebratingIds }) {
-  // Grouped by `visualPositions` (where a move's glide has currently
-  // reached), not the authoritative `player.position` -- the two only match
-  // once a glide finishes, so mid-move a token still shows on whichever
-  // tile it's passing through, and stacking (stackIndex/stackTotal) follows
-  // that same in-transit tile too.
+// Grouped by `visualPositions` (the tile a token's glide has currently
+// reached -- see BoardClassic below), not the authoritative
+// `player.position`; the two only match once a glide finishes. Every
+// player always has exactly one current tile, in flight or not, so
+// stacking (stackIndex/stackTotal) works the same way whether a token is
+// sitting still or mid-glide through the tile it's passing.
+function TokenLayer({ players, sideLen, trackCenters, currentPlayerId, visualPositions, floatingIds, celebratingIds }) {
   const byTile = new Map();
   players.forEach((p) => {
     if (p.bankrupt || p.left) return;
-    const tileId = visualPositions.get(p.id);
-    if (tileId == null) return;
-    if (!byTile.has(tileId)) byTile.set(tileId, []);
-    byTile.get(tileId).push(p);
+    const entry = visualPositions.get(p.id);
+    if (entry == null) return;
+    if (!byTile.has(entry.tileId)) byTile.set(entry.tileId, []);
+    byTile.get(entry.tileId).push({ player: p, glideMs: entry.glideMs, glideEase: entry.glideEase });
   });
 
   return (
@@ -207,7 +238,7 @@ function TokenLayer({ players, sideLen, trackCenters, currentPlayerId, visualPos
         const { row, col } = getLayout(tileId, sideLen);
         const leftPct = trackCenters[col - 1];
         const topPct = trackCenters[row - 1];
-        return occupants.map((p, i) => (
+        return occupants.map(({ player: p, glideMs, glideEase }, i) => (
           <PlayerToken
             key={p.id}
             player={p}
@@ -215,7 +246,9 @@ function TokenLayer({ players, sideLen, trackCenters, currentPlayerId, visualPos
             stackTotal={occupants.length}
             leftPct={leftPct}
             topPct={topPct}
-            isMoving={movingIds.has(p.id)}
+            glideMs={glideMs}
+            glideEase={glideEase}
+            isMoving={floatingIds.has(p.id)}
             justBought={celebratingIds.has(p.id)}
             isActiveTurn={p.id === currentPlayerId}
           />
@@ -227,6 +260,27 @@ function TokenLayer({ players, sideLen, trackCenters, currentPlayerId, visualPos
 
 export default function BoardClassic({ state, myId }) {
   const { board, ownership, players, lastRoll, turnIndex, rollSeq } = state;
+
+  // Rim tracks (row 1 / row N / col 1 / col N) are wider than inner tracks so
+  // tiles take up more of the board and the center shrinks. Tiles become
+  // rectangular as a result (taller on top/bottom, wider on left/right) --
+  // confirmed look via prototype before implementing. Computed up front
+  // (not just where gridTemplate needs it below) because the token-glide
+  // effect further down also needs trackCenters to convert a tile id into
+  // an on-screen coordinate. Memoized on board.length alone (it never
+  // actually changes mid-game) -- without this, buildTrackCenters ran fresh
+  // on every render for any reason at all (opening a tile card, the dice
+  // tick, someone else's unrelated action), and since trackCenters sat in
+  // the glide effect's dependency array below, every single one of those
+  // renders tore down and restarted that effect, killing every in-flight
+  // glide mid-air.
+  const RIM_FR = 1.7;
+  const INNER_FR = 1;
+  const { sideLen, N, trackCenters } = useMemo(() => {
+    const sideLen = board.length / 4;
+    const N = sideLen + 1;
+    return { sideLen, N, trackCenters: buildTrackCenters(N, RIM_FR, INNER_FR) };
+  }, [board.length]);
 
   // Which tile's info card is currently open, if any, and its on-screen
   // position (px, relative to the board container). Read-only here -- build/
@@ -317,23 +371,29 @@ export default function BoardClassic({ state, myId }) {
     return () => window.removeEventListener("resize", onResize);
   }, [selectedTileId]);
 
-  // Detect per-player position/property-count changes across state broadcasts
-  // (prev-ref-idiom) to drive one-shot animations instead of a continuous
-  // state-driven one. Movement in particular traces forward tile-by-tile
-  // (visualPositions -- what TokenLayer actually renders, separate from the
-  // authoritative `player.position`) rather than teleporting straight to the
-  // destination: each step just updates the tile a token is *at*, and
-  // TokenLayer positions it there with a plain left/top percentage that has
-  // a CSS transition on it (see .cv2-token in classicVintage.css), so the
-  // repeated small position changes read as one continuous glide along the
-  // board instead of a hop-and-remount per tile. If the move came from a
-  // dice roll (rollSeq changed in this same update), it waits for the
-  // dice's own 1s tumble animation to finish before the token sets off.
-  const GLIDE_STEP_MS = 110; // keep in sync with the transition duration on .cv2-token
+  // Detect per-player position/property-count changes across state
+  // broadcasts (prev-ref idiom) to drive one-shot animations instead of a
+  // continuous state-driven one. A move steps through only its corner
+  // waypoints (computeLegWaypoints), not every tile -- each leg is a single
+  // CSS transition (see .cv2-token in classicVintage.css, driven by the
+  // --glide-ms/--glide-ease custom properties PlayerToken sets per token),
+  // so the browser itself performs the interpolation instead of a hand
+  // -rolled animation loop. This is deliberately the same "one entry per
+  // player, advanced via a timer chain" shape the very first version of
+  // this board used (proven reliable across many passes) -- the only
+  // change from that baseline is stopping at corners instead of every
+  // tile, and holding a constant-elevation float (floatingIds) for the
+  // whole multi-leg move instead of a bounce fired once on arrival.
+  // If the move came from a dice roll (rollSeq changed in this same
+  // update), it waits for the dice's own 1s tumble animation to finish
+  // before the token sets off.
+  const MS_PER_TILE = 90;
+  const LEG_MIN_MS = 220;
+  const LEG_MAX_MS = 900;
   const [visualPositions, setVisualPositions] = useState(
-    () => new Map(players.map((p) => [p.id, p.position]))
+    () => new Map(players.map((p) => [p.id, { tileId: p.position, glideMs: 0, glideEase: "ease" }]))
   );
-  const [movingIds, setMovingIds] = useState(() => new Set());
+  const [floatingIds, setFloatingIds] = useState(() => new Set());
   const [celebratingIds, setCelebratingIds] = useState(() => new Set());
   const prevPositionsRef = useRef(new Map(players.map((p) => [p.id, p.position])));
   const prevRollSeqRef = useRef(rollSeq);
@@ -366,21 +426,24 @@ export default function BoardClassic({ state, myId }) {
       timers.push(setTimeout(() => {
         playMoveSwoosh();
         moves.forEach(({ id, from, to }) => {
-          const path = computeForwardPath(from, to, board.length);
+          const legs = computeLegWaypoints(from, to, sideLen, board.length);
+          setFloatingIds((s) => new Set(s).add(id));
           let i = 0;
-          const stepNext = () => {
-            if (i >= path.length) {
-              setMovingIds((s) => new Set(s).add(id));
-              timers.push(setTimeout(() => setMovingIds((s) => {
+          const stepLeg = () => {
+            if (i >= legs.length) {
+              setFloatingIds((s) => {
                 const next = new Set(s); next.delete(id); return next;
-              }), 550));
+              });
               return;
             }
-            setVisualPositions((m) => new Map(m).set(id, path[i]));
+            const { tileId, tileCount } = legs[i];
+            const glideMs = Math.min(LEG_MAX_MS, Math.max(LEG_MIN_MS, tileCount * MS_PER_TILE));
+            const glideEase = legEasing(i, legs.length);
+            setVisualPositions((m) => new Map(m).set(id, { tileId, glideMs, glideEase }));
             i += 1;
-            timers.push(setTimeout(stepNext, GLIDE_STEP_MS));
+            timers.push(setTimeout(stepLeg, glideMs));
           };
-          stepNext();
+          stepLeg();
         });
       }, startDelay));
     }
@@ -392,7 +455,7 @@ export default function BoardClassic({ state, myId }) {
       }), 700));
     }
     return () => timers.forEach(clearTimeout);
-  }, [players, rollSeq, board.length]);
+  }, [players, rollSeq, board.length, sideLen, trackCenters]);
 
   // Tracks whether the dice's own jump/spin animation (1s, see dice.css
   // `d3-jump`) is still playing for the roll that just happened, so the
@@ -408,17 +471,7 @@ export default function BoardClassic({ state, myId }) {
     return () => clearTimeout(t);
   }, [rollSeq]);
 
-  const sideLen = board.length / 4;
-  const N = sideLen + 1;
-
-  // Rim tracks (row 1 / row N / col 1 / col N) are wider than inner tracks so
-  // tiles take up more of the board and the center shrinks. Tiles become
-  // rectangular as a result (taller on top/bottom, wider on left/right) --
-  // confirmed look via prototype before implementing.
-  const RIM_FR = 1.7;
-  const INNER_FR = 1;
   const gridTemplate = `${RIM_FR}fr repeat(${N - 2}, ${INNER_FR}fr) ${RIM_FR}fr`;
-  const trackCenters = buildTrackCenters(N, RIM_FR, INNER_FR);
 
   const currentPlayerId = players[turnIndex]?.id;
   const pendingAction = state.pendingAction;
@@ -479,7 +532,7 @@ export default function BoardClassic({ state, myId }) {
           trackCenters={trackCenters}
           currentPlayerId={currentPlayerId}
           visualPositions={visualPositions}
-          movingIds={movingIds}
+          floatingIds={floatingIds}
           celebratingIds={celebratingIds}
         />
 
@@ -614,6 +667,15 @@ export default function BoardClassic({ state, myId }) {
               }
               return null;
             })()}
+            {/* Dev-only: teleports every active player onto one random tile
+                to check the same-tile token-stacking UI without playing a
+                real game up to the point where players naturally collide. */}
+            <button
+              className="cv2-debug-stack-btn"
+              onClick={() => socket.emit("debugStackOnRandomTile")}
+            >
+              Test: stack all players on a random tile
+            </button>
           </div>
         </div>
       </div>

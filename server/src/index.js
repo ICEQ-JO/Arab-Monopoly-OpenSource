@@ -166,6 +166,17 @@ io.on("connection", (socket) => {
     broadcastState(room.code);
   });
 
+  // Dev-only: teleports every active player onto one randomly chosen tile so
+  // the same-tile token-stacking UI can be checked without playing a real
+  // game up to the point where players naturally collide.
+  socket.on("debugStackOnRandomTile", (_, cb) => {
+    const room = getRoom(socket);
+    if (!room) return cb?.({ error: "Room not found" });
+    const result = room.debugStackOnRandomTile();
+    if (result.ok) broadcastState(room.code);
+    cb?.(result);
+  });
+
   socket.on("payToLeaveHolding", () => {
     const room = getRoom(socket);
     if (!room) return;
