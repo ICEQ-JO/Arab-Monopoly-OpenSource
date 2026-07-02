@@ -2,6 +2,7 @@ import { useState } from "react";
 import { socket } from "../socket";
 import PropertyCardDetail from "./PropertyCardDetail";
 import TransitCardDetail from "./TransitCardDetail";
+import { SurpriseIcon } from "./BoardClassic";
 
 // Left-panel grid of the current player's own title-deed cards, two per row
 // with the grid itself scrolling vertically to reveal further pairs -- reuses
@@ -70,6 +71,16 @@ export default function MyProperties({ state, myId }) {
   return (
     <div className="my-properties-panel">
       <span className="my-properties-title">🏠 My Properties</span>
+      {/* A drawn "get out free" card is kept, not spent, the moment it's
+          drawn -- unlike every other card effect, which resolves and is
+          gone -- so unlike the passing card-reveal toast, this needs a
+          persistent reminder the player actually still holds it. */}
+      {me.holdingFreeCard && (
+        <div className="my-properties-kept-card">
+          <SurpriseIcon />
+          <span>Get Out of Holding Free</span>
+        </div>
+      )}
       {owned.length === 0 ? (
         <p className="my-properties-empty">No properties yet</p>
       ) : (

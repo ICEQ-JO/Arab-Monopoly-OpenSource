@@ -240,6 +240,23 @@ export class Room {
     return { ok: true };
   }
 
+  // Player-facing "Start Game" action -- unlike start() below (also called
+  // directly by the test suite, which never bothers picking icons), this
+  // enforces the actual pre-game rules: only the host can start, only once
+  // there are enough players, and only once every active player has picked
+  // an icon (previously unenforced -- the host could start before everyone
+  // had one, leaving latecomers stuck with no token image and, since icons
+  // also assign the player's color, no distinct board color either).
+  playerStartGame(playerId) {
+    if (this.hostId !== playerId) return { error: "Only the host can start the game" };
+    if (this.started) return { error: "Game already started" };
+    const active = this.players.filter((p) => !p.left);
+    if (active.length < 2) return { error: "Need at least 2 players to start" };
+    if (active.some((p) => !p.icon)) return { error: "Every player must choose an icon before starting" };
+    this.start();
+    return { ok: true };
+  }
+
   start() {
     const startBalance = this.rules.startingCash ?? STARTING_BALANCE;
     for (const player of this.players) {
@@ -608,6 +625,24 @@ export class Room {
       this.ownership[tile.id] = { ownerId: playerId, houses: 0 };
     }
     this.pushLog(`[DEV] ${player.name} was granted the full "${group}" group for testing.`);
+    return { ok: true };
+  }
+
+  // Dev/test helper only -- draws a card straight from the named deck for a
+  // player without requiring them to actually land on a Surprise/Treasure
+  // tile, so the full card-reveal UI and deck content can be exercised
+  // repeatedly without playing through a real game. Since drawCard() shifts
+  // off the front of an already-shuffled deck (only reshuffled once empty),
+  // clicking this repeatedly cycles every card in the deck exactly once
+  // before repeating -- a deliberate way to review the whole deck, not
+  // truly random. Refuses while another action is already pending so it
+  // can't clobber real game state (e.g. an in-progress awaitBuy).
+  debugDrawCard(playerId, deckName) {
+    const player = this.playerById(playerId);
+    if (!player) return { error: "Player not found" };
+    if (this.pendingAction) return { error: "Resolve the current action first" };
+    if (deckName !== "surprise" && deckName !== "treasure") return { error: "Unknown deck" };
+    this.drawCard(player, deckName);
     return { ok: true };
   }
 

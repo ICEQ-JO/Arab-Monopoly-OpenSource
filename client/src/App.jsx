@@ -11,6 +11,7 @@ import GameLog from "./components/GameLog";
 import TradeModal from "./components/TradeModal";
 import AuctionModal from "./components/AuctionModal";
 import CardReveal from "./components/CardReveal";
+import DevTools from "./components/DevTools";
 import RulesPanel from "./components/RulesPanel";
 import IconPicker from "./components/IconPicker";
 import ThemeToggle from "./components/ThemeToggle";
@@ -268,6 +269,7 @@ function App() {
       )}
       <AuctionModal state={state} myId={myId} />
       <CardReveal state={state} myId={myId} />
+      {import.meta.env.DEV && <DevTools />}
     </div>
   );
 }

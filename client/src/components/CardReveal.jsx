@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { TreasureIcon, SurpriseIcon } from "./BoardClassic";
 
-const AUTO_DISMISS_MS = 3200;
+const AUTO_DISMISS_MS = 3000;
 
-// Non-interactive toast (no buttons of its own -- the existing "Continue"
-// button already lives in the board's center action zone for a movement
-// card's pendingAction, this only adds the visual). Deliberately
-// `pointer-events: none` at the overlay level (see App.css) so it can
-// render anywhere on screen, even directly over the roll/continue button,
-// without ever blocking a click on it.
+// Non-interactive, centered on screen (no buttons of its own -- the existing
+// "Continue" button already lives in the board's center action zone for a
+// movement card's pendingAction, this only adds the visual). Deliberately
+// `pointer-events: none` at the overlay level (see App.css) so even sitting
+// dead center over the board, it can never intercept a click on the
+// roll/continue button underneath it.
 export default function CardReveal({ state, myId }) {
   const { lastCard, cardSeq, pendingAction, players } = state;
   const [visible, setVisible] = useState(false);
@@ -46,14 +46,18 @@ export default function CardReveal({ state, myId }) {
   return (
     <div className="card-reveal-overlay">
       <div className={`card-reveal${isSurprise ? " card-reveal--surprise" : " card-reveal--treasure"}`}>
-        <div className="card-reveal-icon">{isSurprise ? <SurpriseIcon /> : <TreasureIcon />}</div>
-        <div className="card-reveal-label">{isSurprise ? "Surprise" : "Treasure"}</div>
-        <div className="card-reveal-text">{lastCard.text}</div>
-        {drawnBy && (
-          <div className="card-reveal-by">
-            Drawn by {drawnBy.id === myId ? "you" : drawnBy.name}
-          </div>
-        )}
+        <div className="card-reveal-band">
+          <div className="card-reveal-icon">{isSurprise ? <SurpriseIcon /> : <TreasureIcon />}</div>
+          <span className="card-reveal-label">{isSurprise ? "Surprise" : "Treasure"}</span>
+        </div>
+        <div className="card-reveal-body">
+          <div className="card-reveal-text">{lastCard.text}</div>
+          {drawnBy && (
+            <div className="card-reveal-by">
+              Drawn by {drawnBy.id === myId ? "you" : drawnBy.name}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

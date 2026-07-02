@@ -25,8 +25,16 @@ export default function PlayersPanel({ state, myId, onOpenTrade, onLeave, theme,
   const { players, roomCode, hostId, started, winnerId } = state;
   const isHost = hostId === myId;
   const currentPlayerId = started ? players[state.turnIndex]?.id : null;
+  const activePlayers = players.filter((p) => !p.left);
+  const allIconsChosen = activePlayers.every((p) => p.icon);
+  const [startError, setStartError] = useState("");
 
-  function startGame() { socket.emit("startGame"); }
+  function startGame() {
+    setStartError("");
+    socket.emit("startGame", (res) => {
+      if (res?.error) setStartError(res.error);
+    });
+  }
 
   const pendingTrades = (state.trades || []).filter((t) => t.toId === myId).length;
 
@@ -52,7 +60,7 @@ export default function PlayersPanel({ state, myId, onOpenTrade, onLeave, theme,
       )}
 
       {/* Pre-game start button */}
-      {!started && isHost && players.length >= 2 && (
+      {!started && isHost && players.length >= 2 && allIconsChosen && (
         <button className="panel-start-btn" onClick={startGame}>
           ▶ Start Game
         </button>
@@ -60,9 +68,13 @@ export default function PlayersPanel({ state, myId, onOpenTrade, onLeave, theme,
       {!started && isHost && players.length < 2 && (
         <p className="panel-waiting-hint">Waiting for more players…</p>
       )}
+      {!started && isHost && players.length >= 2 && !allIconsChosen && (
+        <p className="panel-waiting-hint">Waiting for everyone to pick an icon…</p>
+      )}
       {!started && !isHost && (
         <p className="panel-waiting-hint">Waiting for the host to start…</p>
       )}
+      {!started && startError && <p className="error">{startError}</p>}
 
       {/* Player list */}
       <div className="panel-list-header">

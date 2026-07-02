@@ -126,12 +126,13 @@ io.on("connection", (socket) => {
     cleanupIfDone(room);
   });
 
-  socket.on("startGame", () => {
+  socket.on("startGame", (cb) => {
     const room = getRoom(socket);
     const playerId = getPlayerId(socket);
-    if (!room || room.hostId !== playerId) return;
-    if (room.players.length < 2) return;
-    room.start();
+    if (!room) return cb?.({ error: "Room not found" });
+    const result = room.playerStartGame(playerId);
+    if (result.error) return cb?.(result);
+    cb?.({ ok: true });
     broadcastState(room.code);
   });
 
@@ -219,6 +220,16 @@ io.on("connection", (socket) => {
     const room = getRoom(socket);
     if (!room) return cb?.({ error: "Room not found" });
     const result = room.debugGrantGroup(getPlayerId(socket), group);
+    if (result.error) return cb?.(result);
+    cb?.({ ok: true });
+    broadcastState(room.code);
+  });
+
+  // Dev/test only -- see Room.debugDrawCard.
+  socket.on("debugDrawCard", ({ deck } = {}, cb) => {
+    const room = getRoom(socket);
+    if (!room) return cb?.({ error: "Room not found" });
+    const result = room.debugDrawCard(getPlayerId(socket), deck);
     if (result.error) return cb?.(result);
     cb?.({ ok: true });
     broadcastState(room.code);
