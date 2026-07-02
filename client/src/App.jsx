@@ -200,7 +200,7 @@ function App() {
                   disabled={state.players.length < 2}
                   onClick={() => socket.emit("startGame")}
                 >
-                  <span className="lobby-btn-icon">⚔</span> Start Game
+                  Start Game
                 </button>
               </>
             ) : (
@@ -211,7 +211,7 @@ function App() {
             )}
 
             <button className="lobby-btn-secondary" onClick={handleLeave}>
-              <span className="lobby-btn-icon">🚪</span> Leave Room
+              Leave Room
             </button>
           </div>
         </div>

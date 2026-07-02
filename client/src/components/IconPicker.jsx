@@ -24,6 +24,7 @@ export default function IconPicker({ players, myId }) {
           <button
             key={icon.id}
             className={`lobby-icon-swatch${me?.icon === icon.id ? " selected" : ""}${isTaken ? " taken" : ""}`}
+            style={{ "--icon-color": icon.color, "--icon-scale": icon.scale ?? 1 }}
             onClick={() => pick(icon.id)}
             disabled={isTaken}
             title={isTaken ? `${icon.name} (taken)` : icon.name}

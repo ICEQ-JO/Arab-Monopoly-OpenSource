@@ -188,14 +188,14 @@ export default function Lobby({ onJoined, theme, onToggleTheme }) {
                 disabled={!canProceedIdentity}
                 onClick={() => go("create-mode")}
               >
-                <span className="lobby-btn-icon">🏰</span> Create Room
+                Create Room
               </button>
               <button
                 className="lobby-btn-secondary"
                 disabled={!canProceedIdentity}
                 onClick={() => go("join")}
               >
-                <span className="lobby-btn-icon">🚪</span> Join Room
+                Join Room
               </button>
             </div>
           </div>
@@ -234,7 +234,7 @@ export default function Lobby({ onJoined, theme, onToggleTheme }) {
             {error && <p className="lobby-error">{error}</p>}
 
             <button className="lobby-btn-primary" disabled={busy || !canProceedIdentity} onClick={joinRoom}>
-              <span className="lobby-btn-icon">🚪</span> Join Room
+              Join Room
             </button>
           </div>
         </div>
@@ -272,7 +272,7 @@ export default function Lobby({ onJoined, theme, onToggleTheme }) {
             {error && <p className="lobby-error">{error}</p>}
 
             <button className="lobby-btn-primary" disabled={busy} onClick={createRoom}>
-              <span className="lobby-btn-icon">🏰</span> Create Room
+              Create Room
             </button>
           </div>
         </div>
