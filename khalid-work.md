@@ -109,8 +109,7 @@ Turn Order toggle"_
   sampling.
 
 _Commit: "Add Surprise/Treasure card-reveal UI and expand deck content",
-plus follow-up uncommitted fixes for hotel centering / card-reveal
-theming (see below)._
+plus a follow-up commit for the card-reveal re-theme (see below)._
 
 ## 5. Start-game icon-selection bug
 
@@ -130,11 +129,8 @@ theming (see below)._
   hint) until every active player has one; also surfaces any server-side
   start error inline.
 
-## Not yet committed as of writing this file
-
-The card-reveal re-theme (item 4's redesign) and the start-game icon fix
-(item 5) are implemented and build/test clean but not yet committed —
-commit them together as the next step.
+_Commit: "Re-theme card reveal to match vintage board style; fix
+start-game icon bug"_
 
 ## Still open on `to-do.md`
 
