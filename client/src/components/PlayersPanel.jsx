@@ -30,15 +30,6 @@ export default function PlayersPanel({ state, myId, onOpenTrade, onLeave, theme,
 
   const pendingTrades = (state.trades || []).filter((t) => t.toId === myId).length;
 
-  // Player list normally reads in turn order; this just re-sorts that same
-  // array richest-first for a quick "who's winning" glance -- purely a
-  // client-side display choice, doesn't touch turnIndex or anything
-  // server-authoritative (isCurrent below still matches by id, not position).
-  const [rankByBalance, setRankByBalance] = useState(false);
-  const displayedPlayers = rankByBalance
-    ? [...players].sort((a, b) => b.balance - a.balance)
-    : players;
-
   return (
     <div className="players-panel">
       {/* Header */}
@@ -76,16 +67,9 @@ export default function PlayersPanel({ state, myId, onOpenTrade, onLeave, theme,
       {/* Player list */}
       <div className="panel-list-header">
         <span className="panel-list-label">Players</span>
-        <button
-          className={`panel-sort-btn${rankByBalance ? " active" : ""}`}
-          onClick={() => setRankByBalance((v) => !v)}
-          title={rankByBalance ? "Showing richest first — click for turn order" : "Click to rank by balance"}
-        >
-          💰 {rankByBalance ? "By Balance" : "Turn Order"}
-        </button>
       </div>
       <div className="panel-player-list">
-        {displayedPlayers.map((p) => {
+        {players.map((p) => {
           const isCurrent = started && !state.winnerId && currentPlayerId === p.id;
           const isMe = p.id === myId;
           return (

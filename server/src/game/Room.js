@@ -581,6 +581,30 @@ export class Room {
     return { ok: true };
   }
 
+  // Dev/test helper only -- instantly hands a player every tile in a color
+  // group for free (seizing them from whoever currently owns any, if
+  // anyone), so a full-set scenario (houses, hotels, doubled rent) can be
+  // set up in one click instead of playing through a real game. Never wired
+  // to a production UI path -- the client only exposes it behind
+  // import.meta.env.DEV.
+  debugGrantGroup(playerId, group) {
+    const player = this.playerById(playerId);
+    if (!player) return { error: "Player not found" };
+    const tiles = this._board.filter((t) => t.type === TILE_TYPES.PROPERTY && t.group === group);
+    if (!tiles.length) return { error: "Unknown group" };
+    for (const tile of tiles) {
+      const prevOwnerId = this.ownership[tile.id]?.ownerId;
+      if (prevOwnerId && prevOwnerId !== playerId) {
+        const prevPlayer = this.playerById(prevOwnerId);
+        if (prevPlayer) prevPlayer.properties = prevPlayer.properties.filter((id) => id !== tile.id);
+      }
+      if (!player.properties.includes(tile.id)) player.properties.push(tile.id);
+      this.ownership[tile.id] = { ownerId: playerId, houses: 0 };
+    }
+    this.pushLog(`[DEV] ${player.name} was granted the full "${group}" group for testing.`);
+    return { ok: true };
+  }
+
   declineBuy(playerId) {
     if (!this.pendingAction || this.pendingAction.type !== "awaitBuy" || this.pendingAction.playerId !== playerId) {
       return { error: "No property to decline" };

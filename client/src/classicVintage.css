@@ -238,38 +238,77 @@
 }
 
 /* ---------- Building badge (houses / hotel) ---------- */
-/* No badge background/border -- just the icon + count sitting directly on
-   the tile, so it reads as part of the tile rather than a pill stuck on top. */
+/* Lives directly inside the tile's own color band -- one house icon per
+   house built, packed from the tile's outer corner, exactly like a real
+   Monopoly board -- instead of a single icon+count pill floating elsewhere
+   on the tile. Positioned to exactly overlay .cv2-band's own rect per edge
+   (same coordinates as the .cv2-side-*.cv2-band rules above), so it always
+   sits inside the colored strip regardless of which edge the tile is on. */
 .cv2-building-badge {
   position: absolute;
-  top: 2px;
-  left: 50%;
-  transform: translateX(-50%);
   z-index: 4;
   display: flex;
-  align-items: center;
   gap: 2px;
+  padding: 3px;
 }
 
+.cv2-side-top .cv2-building-badge,
+.cv2-side-bottom .cv2-building-badge {
+  left: 0;
+  right: 0;
+  height: 28%;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+}
+.cv2-side-top .cv2-building-badge    { bottom: 0; }
+.cv2-side-bottom .cv2-building-badge { top: 0; }
+
+.cv2-side-left .cv2-building-badge,
+.cv2-side-right .cv2-building-badge {
+  top: 0;
+  bottom: 0;
+  width: 28%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+}
+.cv2-side-right .cv2-building-badge { left: 0; }
+.cv2-side-left .cv2-building-badge  { right: 0; }
+
+/* White-on-color reads clearly against every group color, unlike a single
+   dark icon (which vanished against the darker groups). Hotel icon is
+   drawn a little larger than a house so it doesn't read as "just another
+   house" when it replaces the whole row. */
 .cv2-building-icon {
-  width: 12px;
-  height: 12px;
+  width: clamp(7px, 1.5vw, 13px);
+  height: clamp(7px, 1.5vw, 13px);
+  flex-shrink: 0;
   display: block;
-  background-color: #7a1c1c;
+  background-color: #fff8e7;
   /* Icons ship as solid black silhouettes -- masking (not an <img>) lets the
-     source art be recolored to any color via background-color, here red so
-     it stays visible with no badge fill behind it. */
+     source art be recolored to any color via background-color. */
   -webkit-mask: var(--icon-url) no-repeat center / contain;
   mask: var(--icon-url) no-repeat center / contain;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.7));
 }
 
-.cv2-building-count {
-  font-size: 10px;
-  font-weight: 900;
-  line-height: 1;
-  color: #111;
-  font-family: "Arvo", Georgia, serif;
+.cv2-building-icon--hotel {
+  width: clamp(10px, 2.1vw, 18px);
+  height: clamp(10px, 2.1vw, 18px);
+}
+
+/* Single hotel icon reads better centered in the band than packed at the
+   corner (where the house-row packing starts from) -- overrides the
+   flex-start on whichever axis is the packing axis for this edge. Matched
+   to the same two-class specificity as the .cv2-side-* rules above (a bare
+   .cv2-building-badge--hotel rule loses to those regardless of source
+   order, since they're more specific). */
+.cv2-side-top .cv2-building-badge--hotel,
+.cv2-side-bottom .cv2-building-badge--hotel,
+.cv2-side-left .cv2-building-badge--hotel,
+.cv2-side-right .cv2-building-badge--hotel {
+  justify-content: center;
 }
 
 /* ---------- Player tokens ---------- */

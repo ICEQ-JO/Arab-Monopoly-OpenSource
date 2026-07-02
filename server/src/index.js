@@ -212,6 +212,18 @@ io.on("connection", (socket) => {
     broadcastState(room.code);
   });
 
+  // Dev/test only -- see Room.debugGrantGroup. The client only exposes this
+  // behind import.meta.env.DEV, but nothing here re-checks that server-side
+  // since it's a debug-time build flag, not a security boundary.
+  socket.on("debugGrantGroup", ({ group } = {}, cb) => {
+    const room = getRoom(socket);
+    if (!room) return cb?.({ error: "Room not found" });
+    const result = room.debugGrantGroup(getPlayerId(socket), group);
+    if (result.error) return cb?.(result);
+    cb?.({ ok: true });
+    broadcastState(room.code);
+  });
+
   socket.on("buyHouse", ({ tileId }, cb) => {
     const room = getRoom(socket);
     if (!room) return cb?.({ error: "Room not found" });

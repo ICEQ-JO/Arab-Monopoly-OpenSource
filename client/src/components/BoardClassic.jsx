@@ -176,7 +176,7 @@ function ClassicTile({ tile, owned, players, pendingTileId, sideLen, onSelect, i
       style={{ gridRow: row, gridColumn: col, ...(!isCorner && ownerColor ? { background: ownerColor } : {}) }}
       onClick={isClickable ? (e) => onSelect(id, e.currentTarget, edge) : undefined}
     >
-      {!isCorner && groupColor && <div className="cv2-band" style={{ background: groupColor }} />}
+      {!isCorner && groupColor && !owned?.mortgaged && <div className="cv2-band" style={{ background: groupColor }} />}
       {!isCorner && badgeValue != null && (
         <div className="cv2-price-tag">
           <span className="cv2-price">${badgeValue}</span>
@@ -208,12 +208,21 @@ function ClassicTile({ tile, owned, players, pendingTileId, sideLen, onSelect, i
 
       {owned?.mortgaged && <div className="cv2-dev">M</div>}
       {!owned?.mortgaged && houses > 0 && (
-        <div className="cv2-building-badge">
-          <span
-            className="cv2-building-icon"
-            style={{ "--icon-url": `url(${isHotel ? "/icons/hotel.svg" : "/icons/house.svg"})` }}
-          />
-          {!isHotel && <span className="cv2-building-count">x{houses}</span>}
+        <div className={`cv2-building-badge${isHotel ? " cv2-building-badge--hotel" : ""}`}>
+          {isHotel ? (
+            <span
+              className="cv2-building-icon cv2-building-icon--hotel"
+              style={{ "--icon-url": "url(/icons/hotel.svg)" }}
+            />
+          ) : (
+            Array.from({ length: houses }, (_, i) => (
+              <span
+                key={i}
+                className="cv2-building-icon"
+                style={{ "--icon-url": "url(/icons/house.svg)" }}
+              />
+            ))
+          )}
         </div>
       )}
     </div>

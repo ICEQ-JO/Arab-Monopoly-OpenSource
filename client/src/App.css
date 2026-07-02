@@ -737,6 +737,22 @@
 .rule-cash-input:focus { border-color: var(--accent); }
 .rule-cash-input:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* Dev-build-only debug tools (stripped from production, see RulesPanel.jsx) */
+.rule-row-dev { background: rgba(204, 17, 17, 0.06); }
+.rule-dev-btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 2px solid var(--border-light);
+  background: #fffdf5;
+  color: #2a1c0d;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: Georgia, serif;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.rule-dev-btn:hover { border-color: var(--accent); }
+
 /* ── ICON PICKER (waiting room) ──────────────────────────── */
 
 .lobby-icon-picker {
@@ -2542,28 +2558,6 @@ select {
   letter-spacing: 2px;
   text-transform: uppercase;
   color: var(--text-dim);
-}
-
-.panel-sort-btn {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 4px 9px;
-  border-radius: 6px;
-  background: var(--panel-2);
-  border: 2px solid var(--border);
-  color: var(--text-dim);
-  cursor: pointer;
-  letter-spacing: 0.5px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  transition: transform 0.08s ease, background 0.15s, color 0.15s, border-color 0.15s;
-}
-.panel-sort-btn:hover { background: rgba(255,255,255,0.08); }
-.panel-sort-btn:active { transform: translate(1px, 1px); }
-.panel-sort-btn.active {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 /* Player rows */
