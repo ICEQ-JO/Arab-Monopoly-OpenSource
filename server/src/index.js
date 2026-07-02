@@ -360,7 +360,7 @@ function cleanupIfDone(room) {
 }
 
 httpServer.listen(PORT, () => {
-  console.log(`Fortune City server listening on port ${PORT}`);
+  console.log(`Arab Monopoly server listening on port ${PORT}`);
 });
 
 // Every state-changing event already persists synchronously via broadcastState,

@@ -1,15 +1,13 @@
-# Fortune City
+# Monoboly عرب (Arab Monopoly)
 
 A real-time multiplayer property-trading board game (original theme, inspired by the genre of games like RichUp/Monopoly — no assets or text copied from any existing game).
 
-**Status: v1 foundation, locked in.** Feature-complete against the original
-design, and through several full playtests by a human player covering
-trading, auctions, mortgaging, jail, and bankruptcy together in real games,
-not just in isolation. Bugs found along the way are fixed; see
-[progress.md](progress.md) for the full pass-by-pass history and
-[systemDesign.md](systemDesign.md) for the current architecture, wire
-protocol, and known gaps. New work from here should branch off this point
-rather than rewrite it.
+**Status: actively developed, feature-complete core loop.** Trading,
+auctions, mortgaging, building, the Holding Pen, and Surprise/Treasure
+cards have all been through multiple real playtests, not just isolated
+testing. Bugs found along the way are fixed; see [progress.md](progress.md)
+for the full pass-by-pass history and [systemDesign.md](systemDesign.md)
+for the current architecture, wire protocol, and known gaps.
 
 ## Stack
 - `server/` — Node.js + Express + Socket.io, holds all game state/logic (`server/src/game/Room.js`, `board.js`, `cards.js`)
@@ -66,15 +64,20 @@ Firefox) to test multiple players on one machine.
 ## Game features implemented
 - Room create/join via 6-character codes, up to 6 players; host
   reassignment if the host leaves
+- Four selectable boards, picked at room creation: Classic (48 tiles, the
+  original Arab-themed board), Worldwide (48 tiles, cities across every
+  continent), Middle East (32 tiles, Gulf-to-Maghreb), and Europe (32
+  tiles, European capitals) — all data-driven off the same board renderer
 - Persistent rooms — survive a server restart (`server/data/rooms.json`)
 - Disconnect grace window (20s to reconnect before losing your seat) and a
   hard 4-minute per-turn timer, both server-enforced
-- 48-tile board (single fixed map, "Classic Vintage") with 9 color groups, transit stops, taxes
 - Turn flow: roll dice, move, auto-resolve tile (buy prompt, rent, tax,
   cards); doubles grant a bonus roll, three doubles in a row sends you to
   the Holding Pen
-- "Surprise" and "Treasure" card decks with varied effects; movement cards
-  pause for an explicit confirmation before actually moving you
+- "Surprise" and "Treasure" card decks (14 cards each) with a card-reveal
+  UI shown to the whole room; movement cards pause for an explicit
+  confirmation before actually moving you, and a drawn "Get Out of Holding
+  Free" card is visibly kept until used
 - Holding Pen (jail-equivalent): doubles-to-escape, a 3-turn cap with a
   forced-pay escape, voluntary pay-to-leave, and Get Out of Jail Free cards
 - Buying houses/hotels once a full color group is owned (and selling them
