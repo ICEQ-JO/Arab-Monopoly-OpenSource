@@ -46,7 +46,7 @@ test("eu: capital group (London $220 vs Athens $240) scales rent by price", () =
   assert.notEqual(EU_GROUPS.capital, undefined);
 });
 
-test("middle-east: capital group (عمّان $180 vs القاهرة $200) scales rent by price", () => {
+test("middle-east: capital group (Muscat $220 vs Kuwait City $240) scales rent by price", () => {
   assertGroupRentScalesWithPrice(ME_BOARD, "middle-east");
   assert.notEqual(ME_GROUPS.capital, undefined);
 });

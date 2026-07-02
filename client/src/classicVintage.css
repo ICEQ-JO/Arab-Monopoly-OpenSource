@@ -424,6 +424,18 @@
   transition: transform 0.22s ease;
 }
 
+/* Bridges floating -> idle: applied for a brief window right after
+   --floating is dropped, easing the token from its elevated -26% down to
+   the idle bob's own baseline (-14%, its 0%/100% keyframe value) instead of
+   letting the bob animation restart there instantly. Once this class comes
+   off, the bob animation resumes from exactly -14% -- the same point this
+   transition ends on -- so there's no visible seam. */
+.cv2-token-inner.cv2-token--landing {
+  animation: none;
+  transform: translateY(-14%);
+  transition: transform 0.22s ease;
+}
+
 /* Celebrate: eyes squeeze into happy closed arcs, mouth opens into a big
    grin, plus a cheerful bounce. */
 @keyframes cv2-token-celebrate-bounce {
@@ -581,10 +593,12 @@
 
 /* ---------- Board center ---------- */
 /* Three even thirds: title on top, dice in the middle, actions on the
-   bottom -- each zone centers its own content within its band. */
+   bottom -- each zone centers its own content within its band. Row/column
+   span is set inline by BoardClassic.jsx (`2 / N`), not fixed here -- it
+   has to track the board's actual track count, which varies by map (13 for
+   the 48-tile boards, 9 for the 32-tile ones); a fixed "2 / 13" span reached
+   past a smaller grid into implicit auto tracks and threw the box off-center. */
 .cv2-center {
-  grid-row: 2 / 13;
-  grid-column: 2 / 13;
   display: grid;
   grid-template-rows: 1fr 1fr 1fr;
   align-items: center;

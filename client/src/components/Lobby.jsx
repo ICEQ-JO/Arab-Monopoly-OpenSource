@@ -21,6 +21,13 @@ const QUOTES = [
 const QUOTE_DURATION = 5000;
 const FADE_DURATION  = 500;
 
+const MAPS = [
+  { key: "classic",      icon: "🏛", label: "Classic",     desc: "The original Arab-themed board — 48 tiles." },
+  { key: "middle-east",  icon: "🕌", label: "Middle East", desc: "Gulf-to-Maghreb cities — 32 tiles." },
+  { key: "worldwide",    icon: "🌍", label: "Worldwide",   desc: "A trip across every continent — 48 tiles." },
+  { key: "eu",           icon: "🇪🇺", label: "Europe",      desc: "European capitals — 32 tiles." },
+];
+
 // Steps: 'landing' → 'create-mode' → done (color and rules are picked once
 //        inside the room, not here)
 //        'landing' → 'join'
@@ -34,6 +41,9 @@ export default function Lobby({ onJoined, theme, onToggleTheme }) {
 
   // Shared identity
   const [name,  setName]  = useState("");
+
+  // Create-specific
+  const [mapKey, setMapKey] = useState("classic");
 
   // Join-specific
   const [code, setCode] = useState("");
@@ -119,7 +129,7 @@ export default function Lobby({ onJoined, theme, onToggleTheme }) {
   function createRoom() {
     if (!name.trim()) return setError("Enter your name first");
     setBusy(true);
-    socket.emit("createRoom", { name: name.trim() }, (res) => {
+    socket.emit("createRoom", { name: name.trim(), rules: { map: mapKey } }, (res) => {
       setBusy(false);
       if (res?.error) return setError(res.error);
       onJoined(res);
@@ -268,6 +278,23 @@ export default function Lobby({ onJoined, theme, onToggleTheme }) {
             <p className="lobby-mode-desc">
               Classic property trading — pick your color and rules once you're in the room.
             </p>
+
+            <div className="lobby-input-group">
+              <label className="lobby-input-label">Map</label>
+              <div className="map-picker">
+                {MAPS.map((m) => (
+                  <button
+                    key={m.key}
+                    className={`map-btn${mapKey === m.key ? " active" : ""}`}
+                    onClick={() => setMapKey(m.key)}
+                  >
+                    <span className="map-btn-icon">{m.icon}</span>
+                    <span className="map-btn-label">{m.label}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="map-picker-desc">{MAPS.find((m) => m.key === mapKey)?.desc}</p>
+            </div>
 
             {error && <p className="lobby-error">{error}</p>}
 

@@ -137,10 +137,17 @@ function computeLegWaypoints(from, to, sideLen, totalTiles) {
 // the legs in between run at constant speed -- so the whole multi-leg trip
 // reads as one continuous accelerate/cruise/decelerate motion instead of
 // visibly re-accelerating at every corner it passes through.
+// Sharp accelerate-in, snappy expo-out settle -- reads as "fast, but lands
+// smooth" instead of the generic ease-in-out/ease-out keyword curves, which
+// decelerate too gradually for a quick per-tile hop.
+const LEG_EASE_IN = "cubic-bezier(0.4, 0, 1, 1)";
+const LEG_EASE_OUT = "cubic-bezier(0.16, 1, 0.3, 1)";
+const LEG_EASE_IN_OUT = "cubic-bezier(0.65, 0, 0.35, 1)";
+
 function legEasing(index, total) {
-  if (total === 1) return "ease-in-out";
-  if (index === 0) return "ease-in";
-  if (index === total - 1) return "ease-out";
+  if (total === 1) return LEG_EASE_IN_OUT;
+  if (index === 0) return LEG_EASE_IN;
+  if (index === total - 1) return LEG_EASE_OUT;
   return "linear";
 }
 
@@ -222,7 +229,7 @@ function ClassicTile({ tile, owned, players, pendingTileId, sideLen, onSelect, i
 // player always has exactly one current tile, in flight or not, so
 // stacking (stackIndex/stackTotal) works the same way whether a token is
 // sitting still or mid-glide through the tile it's passing.
-function TokenLayer({ players, sideLen, trackCenters, currentPlayerId, visualPositions, floatingIds, celebratingIds }) {
+function TokenLayer({ players, sideLen, trackCenters, currentPlayerId, visualPositions, floatingIds, landingIds, celebratingIds }) {
   const byTile = new Map();
   players.forEach((p) => {
     if (p.bankrupt || p.left) return;
@@ -249,6 +256,7 @@ function TokenLayer({ players, sideLen, trackCenters, currentPlayerId, visualPos
             glideMs={glideMs}
             glideEase={glideEase}
             isMoving={floatingIds.has(p.id)}
+            isLanding={landingIds.has(p.id)}
             justBought={celebratingIds.has(p.id)}
             isActiveTurn={p.id === currentPlayerId}
           />
@@ -387,13 +395,21 @@ export default function BoardClassic({ state, myId }) {
   // If the move came from a dice roll (rollSeq changed in this same
   // update), it waits for the dice's own 1s tumble animation to finish
   // before the token sets off.
-  const MS_PER_TILE = 90;
+  const MS_PER_TILE = 70;
   const LEG_MIN_MS = 220;
-  const LEG_MAX_MS = 900;
+  const LEG_MAX_MS = 650;
   const [visualPositions, setVisualPositions] = useState(
     () => new Map(players.map((p) => [p.id, { tileId: p.position, glideMs: 0, glideEase: "ease" }]))
   );
   const [floatingIds, setFloatingIds] = useState(() => new Set());
+  // Held briefly right after floatingIds drops a player, so the token
+  // transitions smoothly back down to its idle bob baseline instead of
+  // snapping -- removing --floating has no transition of its own to ride
+  // (its transition rule lives only on the --floating class itself, and the
+  // idle bob keyframe animation that resumes after it takes over `transform`
+  // outright, so without this in-between state the landing was an instant cut).
+  const [landingIds, setLandingIds] = useState(() => new Set());
+  const LANDING_MS = 220;
   const [celebratingIds, setCelebratingIds] = useState(() => new Set());
   const prevPositionsRef = useRef(new Map(players.map((p) => [p.id, p.position])));
   const prevRollSeqRef = useRef(rollSeq);
@@ -434,6 +450,12 @@ export default function BoardClassic({ state, myId }) {
               setFloatingIds((s) => {
                 const next = new Set(s); next.delete(id); return next;
               });
+              setLandingIds((s) => new Set(s).add(id));
+              timers.push(setTimeout(() => {
+                setLandingIds((s) => {
+                  const next = new Set(s); next.delete(id); return next;
+                });
+              }, LANDING_MS));
               return;
             }
             const { tileId, tileCount } = legs[i];
@@ -533,6 +555,7 @@ export default function BoardClassic({ state, myId }) {
           currentPlayerId={currentPlayerId}
           visualPositions={visualPositions}
           floatingIds={floatingIds}
+          landingIds={landingIds}
           celebratingIds={celebratingIds}
         />
 
@@ -578,7 +601,7 @@ export default function BoardClassic({ state, myId }) {
           </div>
         )}
 
-        <div className="cv2-center">
+        <div className="cv2-center" style={{ gridRow: `2 / ${N}`, gridColumn: `2 / ${N}` }}>
           <div className="cv2-title">Monoboly عرب</div>
 
           <div className="cv2-dice-zone">
