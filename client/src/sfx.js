@@ -37,33 +37,53 @@ function safeCtx() {
   return ctx;
 }
 
-// Short percussive rattle: 2-4 quick noise-burst clicks with randomized
-// pitch/timing, over ~150-250ms.
-export function playDiceRoll() {
-  const c = safeCtx();
-  if (!c) return;
-  const clicks = 2 + Math.floor(Math.random() * 3);
-  let t = c.currentTime;
-  for (let i = 0; i < clicks; i++) {
-    const dur = 0.03 + Math.random() * 0.02;
-    const buf = c.createBuffer(1, Math.ceil(c.sampleRate * dur), c.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1) * (1 - j / d.length);
-    const src = c.createBufferSource();
-    src.buffer = buf;
-    const bp = c.createBiquadFilter();
-    bp.type = "bandpass";
-    bp.frequency.value = 1200 + Math.random() * 2000;
-    bp.Q.value = 1.2;
-    const gain = c.createGain();
-    gain.gain.value = 0.25;
-    src.connect(bp);
-    bp.connect(gain);
-    gain.connect(c.destination);
-    src.start(t);
-    t += 0.03 + Math.random() * 0.05;
-  }
+// Recorded-clip effects (dice throw, trade lifecycle, buying a tile) are
+// decoded once and played through the same shared AudioContext the
+// synthesized effects below use, rather than a plain <audio> element. These
+// all fire off a game-state broadcast (see App.jsx/BoardClassic.jsx) so every
+// player in the room hears them together, including everyone who *didn't*
+// click anything themselves this instant -- a plain HTMLMediaElement's
+// .play() is what triggers browsers' autoplay block in that case, since it
+// isn't running inside the click that caused it. The AudioContext only needs
+// resuming once per page (via primeAudio(), itself always called from an
+// actual gesture -- the sound toggle or Roll Dice/Buy clicks), and every
+// buffer scheduled on it afterwards, sync or async, plays fine.
+const clipBufferCache = new Map();
+function loadClipBuffer(c, src) {
+  if (clipBufferCache.has(src)) return clipBufferCache.get(src);
+  const promise = fetch(src)
+    .then((res) => res.arrayBuffer())
+    .then((data) => c.decodeAudioData(data));
+  clipBufferCache.set(src, promise);
+  return promise;
 }
+
+function makeClipPlayer(src, volume = 1) {
+  return () => {
+    const c = safeCtx();
+    if (!c) return;
+    loadClipBuffer(c, src).then((buffer) => {
+      const node = c.createBufferSource();
+      node.buffer = buffer;
+      const gain = c.createGain();
+      gain.gain.value = volume;
+      node.connect(gain);
+      gain.connect(c.destination);
+      node.start();
+    }).catch(() => {});
+  };
+}
+
+// Dice throw -- fired off the rollSeq broadcast (see Dice.jsx) rather than
+// the Roll Dice click itself, so it lands for the whole room together.
+export const playDiceThrow = makeClipPlayer("/whoosh.mp3", 0.8);
+// A new trade offer landing in everyone's Open Trades list.
+export const playTradePopup = makeClipPlayer("/Tradin2.mp3");
+// A trade being accepted / declined, or a property being bought (see
+// App.jsx's game-log watcher).
+export const playTradeAccepted = makeClipPlayer("/TradeAccepted.mp3");
+export const playTradeDeclined = makeClipPlayer("/DeclineTrade.mp3");
+export const playBoughtTile = makeClipPlayer("/Bought_tile.mp3");
 
 // Quick descending "swoosh": one oscillator with a fast frequency ramp down.
 export function playMoveSwoosh() {

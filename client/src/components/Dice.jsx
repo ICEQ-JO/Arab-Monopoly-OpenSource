@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { playDiceRoll } from "../sfx";
+import { playDiceThrow } from "../sfx";
 import "./dice.css";
 
 const LAYOUTS = {
@@ -88,7 +88,10 @@ export default function Dice({ roll, rollSeq }) {
   useEffect(() => {
     if (rollSeq === lastSeqRef.current) return;
     lastSeqRef.current = rollSeq;
-    playDiceRoll();
+    // Fires off the same rollSeq broadcast every player's Dice receives, so
+    // the throw sound lands for the whole room together instead of just the
+    // roller (who used to hear it immediately on their own click).
+    playDiceThrow();
 
     const v1 = roll ? roll[0] : 1;
     const v2 = roll ? roll[1] : 1;

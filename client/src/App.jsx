@@ -16,6 +16,7 @@ import RulesPanel from "./components/RulesPanel";
 import IconPicker from "./components/IconPicker";
 import ThemeToggle from "./components/ThemeToggle";
 import { IconCopy, IconCheck } from "./components/icons";
+import { playTradePopup, playTradeAccepted, playTradeDeclined, playBoughtTile } from "./sfx";
 import "./App.css";
 
 function App() {
@@ -45,6 +46,52 @@ function App() {
   // tokenMoving is already true, which a purely effect-driven flag (set one
   // render after the state update lands) was consistently one render late for.
   const prevMovePositionsRef = useRef(new Map());
+
+  // Chimes for everyone in the room the instant any new trade offer shows up
+  // in state.trades, not just its recipient. seenTradeIdsRef starts empty and
+  // gets bulk-seeded (no sound) the first time state+myId are both
+  // available, so trades that already existed before this session started
+  // watching (e.g. on rejoin) don't retroactively trigger the chime -- only
+  // genuinely new ones after that do.
+  const seenTradeIdsRef = useRef(new Set());
+  const tradesSeededRef = useRef(false);
+  useEffect(() => {
+    if (!state || !myId) return;
+    const trades = state.trades || [];
+    const seen = seenTradeIdsRef.current;
+    if (!tradesSeededRef.current) {
+      trades.forEach((t) => seen.add(t.id));
+      tradesSeededRef.current = true;
+      return;
+    }
+    let hasNewTrade = false;
+    trades.forEach((t) => {
+      if (seen.has(t.id)) return;
+      seen.add(t.id);
+      hasNewTrade = true;
+    });
+    if (hasNewTrade) playTradePopup();
+  }, [state, myId]);
+
+  // Accept/decline and buying a tile have no dedicated socket event of their
+  // own that reaches every client (respondTrade/buyProperty only call back
+  // the player who acted) -- the game log entry each one pushes server-side
+  // is the one signal every client in the room actually receives, so that's
+  // what gets watched here instead. lastLogRef seeds silently on the first
+  // state a client sees (so joining mid-game doesn't replay a sound for
+  // whatever happens to already be the newest entry), then compares only the
+  // newest line on each update after that.
+  const lastLogRef = useRef(undefined);
+  useEffect(() => {
+    if (!state) return;
+    const newest = (state.log || [])[0];
+    const prev = lastLogRef.current;
+    lastLogRef.current = newest;
+    if (prev === undefined || newest === undefined || newest === prev) return;
+    if (newest.includes("completed a trade.")) playTradeAccepted();
+    else if (newest.includes("declined") && newest.includes("trade offer")) playTradeDeclined();
+    else if (newest.includes(" bought ")) playBoughtTile();
+  }, [state]);
 
   function toggleTheme() {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
