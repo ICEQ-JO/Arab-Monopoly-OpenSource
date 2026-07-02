@@ -4,16 +4,16 @@ import { playMoveSwoosh, primeAudio } from "../sfx";
 import Dice from "./Dice";
 import PlayerToken from "./PlayerToken";
 import PropertyCardDetail from "./PropertyCardDetail";
+import TransitCardDetail from "./TransitCardDetail";
 import { ICONS } from "../data/icons";
 import "../classicVintage.css";
 
-// The "Title Deed" detail card (PropertyCardDetail) assumes a property's
-// data shape -- rent tiered by house count, a housePrice -- which transit
-// tiles don't share (their rent scales with how many stations are owned,
-// they have no housePrice at all, and this board has no utility tiles).
-// Scoped to just properties so the card is never opened with data it can't
-// represent correctly.
-const CLICKABLE_TYPE = "property";
+// PropertyCardDetail assumes a property's data shape -- rent tiered by
+// house count, a housePrice -- which transit tiles don't share (their rent
+// scales with how many stations are owned, and they have no housePrice at
+// all). Transit tiles get their own TransitCardDetail card instead; this
+// board has no utility tiles so those two cover every ownable tile type.
+const CLICKABLE_TYPES = ["property", "transit"];
 
 function TreasureIcon() {
   return (
@@ -78,36 +78,64 @@ function getLayout(id, sideLen) {
   return { edge, row, col, N };
 }
 
-function ClassicTile({ tile, owned, players, pendingTileId, sideLen, onSelect, onHoverEnter, onHoverLeave, isSelected }) {
+// Percentage (of the board's width/height) of the center of each of the N
+// grid tracks, given the same rim/inner fr weighting used for the tile grid
+// itself (see RIM_FR/INNER_FR below) -- lets a token be positioned with
+// plain left/top percentages instead of CSS grid placement, so a CSS
+// transition can glide it smoothly between tiles instead of snapping.
+// Index 0 = track 1 (first row/col), index N-1 = track N (last row/col).
+function buildTrackCenters(N, rimFr, innerFr) {
+  const totalFr = rimFr * 2 + innerFr * (N - 2);
+  const centers = [];
+  let acc = 0;
+  for (let t = 1; t <= N; t++) {
+    const fr = (t === 1 || t === N) ? rimFr : innerFr;
+    centers.push(((acc + fr / 2) / totalFr) * 100);
+    acc += fr;
+  }
+  return centers;
+}
+
+// Every move (including a card-driven teleport) walks forward tile by tile,
+// wrapping past the last tile back to 0 -- matches how movement already
+// works server-side, and is what lets a token visually trace the board
+// instead of jumping straight to wherever it landed.
+function computeForwardPath(from, to, totalTiles) {
+  const path = [];
+  let cur = from;
+  while (cur !== to) {
+    cur = (cur + 1) % totalTiles;
+    path.push(cur);
+  }
+  return path;
+}
+
+function ClassicTile({ tile, owned, players, pendingTileId, sideLen, onSelect, isSelected }) {
   const { id, name, price, amount, groupColor, type } = tile;
   const { edge, row, col } = getLayout(id, sideLen);
   const hasIcon = type === "treasure" || type === "surprise" || type === "tax" || type === "transit" || type === "rest";
   const isLRSide = edge === "left" || edge === "right";
   const nameParts = name.split(" ");
   const isCorner = edge === "corner";
+  // Mortgaged tiles go dull grey regardless of owner, so the board reads
+  // "not earning rent" at a glance instead of still flashing the owner color.
   const ownerColor = owned?.ownerId
-    ? players.find((p) => p.id === owned.ownerId)?.color
+    ? (owned.mortgaged ? "#5a5a5a" : players.find((p) => p.id === owned.ownerId)?.color)
     : null;
   const isPending = pendingTileId === id;
-  const isClickable = type === CLICKABLE_TYPE;
+  const isClickable = CLICKABLE_TYPES.includes(type);
 
   const badgeValue = price != null ? price : amount;
-  const devLabel = owned?.mortgaged
-    ? "M"
-    : owned?.houses
-      ? (owned.houses >= 5 ? "H" : String(owned.houses))
-      : null;
+  const houses = owned?.houses || 0;
+  const isHotel = houses >= 5;
 
   return (
     <div
       className={`cv2-tile ${isCorner ? "cv2-corner" : `cv2-side-${edge}`}${type === "transit" ? " cv2-transit" : ""}${type === "rest" ? " cv2-rest" : ""}${isPending ? " cv2-pending" : ""}${isClickable ? " cv2-tile-clickable" : ""}${isSelected ? " cv2-tile-selected" : ""}`}
-      style={{ gridRow: row, gridColumn: col }}
+      style={{ gridRow: row, gridColumn: col, ...(!isCorner && ownerColor ? { background: ownerColor } : {}) }}
       onClick={isClickable ? (e) => onSelect(id, e.currentTarget, edge) : undefined}
-      onMouseEnter={isClickable ? (e) => onHoverEnter(id, e.currentTarget, edge) : undefined}
-      onMouseLeave={isClickable ? () => onHoverLeave(id) : undefined}
     >
       {!isCorner && groupColor && <div className="cv2-band" style={{ background: groupColor }} />}
-      {!isCorner && ownerColor && <div className="cv2-owner-bar" style={{ background: ownerColor }} />}
       {!isCorner && badgeValue != null && (
         <div className="cv2-price-tag">
           <span className="cv2-price">${badgeValue}</span>
@@ -137,41 +165,61 @@ function ClassicTile({ tile, owned, players, pendingTileId, sideLen, onSelect, o
         )}
       </div>
 
-      {devLabel && <div className="cv2-dev">{devLabel}</div>}
+      {owned?.mortgaged && <div className="cv2-dev">M</div>}
+      {!owned?.mortgaged && houses > 0 && (
+        <div className="cv2-building-badge">
+          <span
+            className="cv2-building-icon"
+            style={{ "--icon-url": `url(${isHotel ? "/icons/hotel.svg" : "/icons/house.svg"})` }}
+          />
+          {!isHotel && <span className="cv2-building-count">x{houses}</span>}
+        </div>
+      )}
     </div>
   );
 }
 
-// Renders every occupied tile's token stack in a single board-wide overlay
-// grid, sharing the exact same row/col template as the tile grid below it so
-// each stack still lines up with its tile -- but as a sibling of the tiles,
-// not nested inside one, so a token is never clipped by a tile's own
-// `overflow: hidden` while it's elevated or stacked with other occupants.
-function TokenLayer({ board, players, sideLen, gridTemplate, currentPlayerId, movingIds, celebratingIds }) {
+// Renders every occupied tile's token stack in a single board-wide overlay,
+// as a sibling of the tiles rather than nested inside one (so a token is
+// never clipped by a tile's own `overflow: hidden` while elevated/stacked).
+// Each token is placed with plain left/top percentages (trackCenters) and a
+// CSS transition on those, not CSS grid placement -- grid-row/column can't
+// be animated, but a percentage can, which is what lets a move glide
+// smoothly between tiles instead of snapping.
+function TokenLayer({ players, sideLen, trackCenters, currentPlayerId, visualPositions, movingIds, celebratingIds }) {
+  // Grouped by `visualPositions` (where a move's glide has currently
+  // reached), not the authoritative `player.position` -- the two only match
+  // once a glide finishes, so mid-move a token still shows on whichever
+  // tile it's passing through, and stacking (stackIndex/stackTotal) follows
+  // that same in-transit tile too.
+  const byTile = new Map();
+  players.forEach((p) => {
+    if (p.bankrupt || p.left) return;
+    const tileId = visualPositions.get(p.id);
+    if (tileId == null) return;
+    if (!byTile.has(tileId)) byTile.set(tileId, []);
+    byTile.get(tileId).push(p);
+  });
+
   return (
-    <div
-      className="cv2-token-layer"
-      style={{ gridTemplateColumns: gridTemplate, gridTemplateRows: gridTemplate }}
-    >
-      {board.map((tile) => {
-        const occupants = players.filter((p) => p.position === tile.id && !p.bankrupt && !p.left);
-        if (occupants.length === 0) return null;
-        const { row, col } = getLayout(tile.id, sideLen);
-        return (
-          <div key={tile.id} className="cv2-token-cell" style={{ gridRow: row, gridColumn: col }}>
-            {occupants.map((p, i) => (
-              <PlayerToken
-                key={p.id}
-                player={p}
-                stackIndex={i}
-                stackTotal={occupants.length}
-                isMoving={movingIds.has(p.id)}
-                justBought={celebratingIds.has(p.id)}
-                isActiveTurn={p.id === currentPlayerId}
-              />
-            ))}
-          </div>
-        );
+    <div className="cv2-token-layer">
+      {[...byTile.entries()].flatMap(([tileId, occupants]) => {
+        const { row, col } = getLayout(tileId, sideLen);
+        const leftPct = trackCenters[col - 1];
+        const topPct = trackCenters[row - 1];
+        return occupants.map((p, i) => (
+          <PlayerToken
+            key={p.id}
+            player={p}
+            stackIndex={i}
+            stackTotal={occupants.length}
+            leftPct={leftPct}
+            topPct={topPct}
+            isMoving={movingIds.has(p.id)}
+            justBought={celebratingIds.has(p.id)}
+            isActiveTurn={p.id === currentPlayerId}
+          />
+        ));
       })}
     </div>
   );
@@ -180,18 +228,13 @@ function TokenLayer({ board, players, sideLen, gridTemplate, currentPlayerId, mo
 export default function BoardClassic({ state, myId }) {
   const { board, ownership, players, lastRoll, turnIndex, rollSeq } = state;
 
-  // Which tile's info card (build/sell/mortgage) is currently open, if any,
-  // its on-screen position (px, relative to the board container), and any
-  // error from the last build/sell/mortgage attempt on it.
+  // Which tile's info card is currently open, if any, and its on-screen
+  // position (px, relative to the board container). Read-only here -- build/
+  // sell/mortgage controls live only in the My Properties panel now, so this
+  // card has nothing to submit and thus no error state of its own.
   const [selectedTileId, setSelectedTileId] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [cardPos, setCardPos] = useState({ top: 0, left: 0 });
-  const [cardError, setCardError] = useState("");
-  // Whether the currently-open card was pinned open by a click, rather than
-  // just showing on hover -- a pinned card survives the mouse leaving the
-  // tile and only closes on an explicit click outside it (or clicking the
-  // pinned tile again).
-  const [pinned, setPinned] = useState(false);
   const boardRef = useRef(null);
   const cardRef = useRef(null);
   const selectedTileElRef = useRef(null);
@@ -202,7 +245,6 @@ export default function BoardClassic({ state, myId }) {
   // pass below, so the card's offset stays correct even if the board
   // resizes while it's open).
   function openTile(tileId, tileEl, edge) {
-    setCardError("");
     setSelectedTileId(tileId);
     setSelectedEdge(edge);
     selectedTileElRef.current = tileEl;
@@ -212,33 +254,18 @@ export default function BoardClassic({ state, myId }) {
     setSelectedTileId(null);
     setSelectedEdge(null);
     selectedTileElRef.current = null;
-    setPinned(false);
   }
 
-  // Hovering opens the card as a preview; it never opens/replaces a card
-  // that's currently pinned open by a click.
-  function handleHoverEnter(tileId, tileEl, edge) {
-    if (pinned) return;
-    openTile(tileId, tileEl, edge);
-  }
-
-  // Leaving the tile closes the preview -- unless it's pinned, in which case
-  // it stays open until an explicit click outside (or re-clicking the tile).
-  function handleHoverLeave(tileId) {
-    if (pinned) return;
-    if (selectedTileId !== tileId) return;
-    closeTile();
-  }
-
-  // Clicking pins the card open (or opens it, if hover hadn't already).
-  // Clicking the tile that's already pinned open unpins and closes it.
+  // Click-only: opens the card, or closes it if the already-open tile is
+  // clicked again. Stays open until an explicit click (this or elsewhere on
+  // the board) -- no hover-preview, which was the source of a string of
+  // flicker/mis-position bugs.
   function selectTile(tileId, tileEl, edge) {
-    if (pinned && selectedTileId === tileId) {
+    if (selectedTileId === tileId) {
       closeTile();
       return;
     }
     openTile(tileId, tileEl, edge);
-    setPinned(true);
   }
 
   // Positions the card OFFSET from the tile that opened it -- never on top
@@ -291,18 +318,36 @@ export default function BoardClassic({ state, myId }) {
   }, [selectedTileId]);
 
   // Detect per-player position/property-count changes across state broadcasts
-  // (same prev-ref-diff idiom as rollSeq above) to trigger one-shot token
-  // hop/celebrate animations instead of a continuous state-driven animation.
+  // (prev-ref-idiom) to drive one-shot animations instead of a continuous
+  // state-driven one. Movement in particular traces forward tile-by-tile
+  // (visualPositions -- what TokenLayer actually renders, separate from the
+  // authoritative `player.position`) rather than teleporting straight to the
+  // destination: each step just updates the tile a token is *at*, and
+  // TokenLayer positions it there with a plain left/top percentage that has
+  // a CSS transition on it (see .cv2-token in classicVintage.css), so the
+  // repeated small position changes read as one continuous glide along the
+  // board instead of a hop-and-remount per tile. If the move came from a
+  // dice roll (rollSeq changed in this same update), it waits for the
+  // dice's own 1s tumble animation to finish before the token sets off.
+  const GLIDE_STEP_MS = 110; // keep in sync with the transition duration on .cv2-token
+  const [visualPositions, setVisualPositions] = useState(
+    () => new Map(players.map((p) => [p.id, p.position]))
+  );
   const [movingIds, setMovingIds] = useState(() => new Set());
   const [celebratingIds, setCelebratingIds] = useState(() => new Set());
   const prevPositionsRef = useRef(new Map(players.map((p) => [p.id, p.position])));
+  const prevRollSeqRef = useRef(rollSeq);
   const prevPropCountsRef = useRef(new Map(players.map((p) => [p.id, p.properties.length])));
 
   useEffect(() => {
     const prevPositions = prevPositionsRef.current;
-    const movedIds = [];
+    const rollJustHappened = rollSeq !== prevRollSeqRef.current;
+    prevRollSeqRef.current = rollSeq;
+
+    const moves = [];
     players.forEach((p) => {
-      if (prevPositions.get(p.id) !== undefined && prevPositions.get(p.id) !== p.position) movedIds.push(p.id);
+      const prev = prevPositions.get(p.id);
+      if (prev !== undefined && prev !== p.position) moves.push({ id: p.id, from: prev, to: p.position });
       prevPositions.set(p.id, p.position);
     });
 
@@ -315,13 +360,31 @@ export default function BoardClassic({ state, myId }) {
     });
 
     const timers = [];
-    if (movedIds.length) {
-      playMoveSwoosh();
-      setMovingIds((s) => new Set([...s, ...movedIds]));
-      timers.push(setTimeout(() => setMovingIds((s) => {
-        const next = new Set(s); movedIds.forEach((id) => next.delete(id)); return next;
-      }), 550));
+
+    if (moves.length) {
+      const startDelay = rollJustHappened ? 1000 : 0;
+      timers.push(setTimeout(() => {
+        playMoveSwoosh();
+        moves.forEach(({ id, from, to }) => {
+          const path = computeForwardPath(from, to, board.length);
+          let i = 0;
+          const stepNext = () => {
+            if (i >= path.length) {
+              setMovingIds((s) => new Set(s).add(id));
+              timers.push(setTimeout(() => setMovingIds((s) => {
+                const next = new Set(s); next.delete(id); return next;
+              }), 550));
+              return;
+            }
+            setVisualPositions((m) => new Map(m).set(id, path[i]));
+            i += 1;
+            timers.push(setTimeout(stepNext, GLIDE_STEP_MS));
+          };
+          stepNext();
+        });
+      }, startDelay));
     }
+
     if (boughtIds.length) {
       setCelebratingIds((s) => new Set([...s, ...boughtIds]));
       timers.push(setTimeout(() => setCelebratingIds((s) => {
@@ -329,7 +392,7 @@ export default function BoardClassic({ state, myId }) {
       }), 700));
     }
     return () => timers.forEach(clearTimeout);
-  }, [players]);
+  }, [players, rollSeq, board.length]);
 
   // Tracks whether the dice's own jump/spin animation (1s, see dice.css
   // `d3-jump`) is still playing for the roll that just happened, so the
@@ -355,6 +418,7 @@ export default function BoardClassic({ state, myId }) {
   const RIM_FR = 1.7;
   const INNER_FR = 1;
   const gridTemplate = `${RIM_FR}fr repeat(${N - 2}, ${INNER_FR}fr) ${RIM_FR}fr`;
+  const trackCenters = buildTrackCenters(N, RIM_FR, INNER_FR);
 
   const currentPlayerId = players[turnIndex]?.id;
   const pendingAction = state.pendingAction;
@@ -367,14 +431,9 @@ export default function BoardClassic({ state, myId }) {
   const selectedOwnerPlayer = selectedOwned ? players.find((p) => p.id === selectedOwned.ownerId) : null;
   const selectedHouses = selectedOwned?.houses || 0;
   const selectedMortgaged = !!selectedOwned?.mortgaged;
-  const isMine = selectedOwned?.ownerId === myId;
-
-  function emitPropertyAction(event) {
-    setCardError("");
-    socket.emit(event, { tileId: selectedTileId }, (res) => {
-      if (res?.error) setCardError(res.error);
-    });
-  }
+  const selectedStationsOwned = selectedOwned
+    ? board.filter((t) => t.type === "transit" && ownership[t.id]?.ownerId === selectedOwned.ownerId).length
+    : 0;
 
   return (
     <div className="cv2-root" style={{ width: "100%", height: "100%" }}>
@@ -410,18 +469,16 @@ export default function BoardClassic({ state, myId }) {
             pendingTileId={pendingTileId}
             sideLen={sideLen}
             onSelect={selectTile}
-            onHoverEnter={handleHoverEnter}
-            onHoverLeave={handleHoverLeave}
             isSelected={selectedTileId === tile.id}
           />
         ))}
 
         <TokenLayer
-          board={board}
           players={players}
           sideLen={sideLen}
-          gridTemplate={gridTemplate}
+          trackCenters={trackCenters}
           currentPlayerId={currentPlayerId}
+          visualPositions={visualPositions}
           movingIds={movingIds}
           celebratingIds={celebratingIds}
         />
@@ -432,35 +489,50 @@ export default function BoardClassic({ state, myId }) {
             className="cv2-tile-card-wrap"
             style={{ position: "absolute", top: cardPos.top, left: cardPos.left, zIndex: 200 }}
           >
-            <PropertyCardDetail
-              tile={selectedTile}
-              houses={selectedHouses}
-              mortgaged={selectedMortgaged}
-              owner={
-                selectedOwnerPlayer && {
-                  name: selectedOwnerPlayer.name,
-                  color: selectedOwnerPlayer.color,
-                  iconImg: selectedOwnerPlayer.icon
-                    ? ICONS.find((i) => i.id === selectedOwnerPlayer.icon)?.img
-                    : null,
+            {selectedTile.type === "transit" ? (
+              <TransitCardDetail
+                tile={selectedTile}
+                mortgaged={selectedMortgaged}
+                ownedCount={selectedStationsOwned}
+                owner={
+                  selectedOwnerPlayer && {
+                    name: selectedOwnerPlayer.name,
+                    color: selectedOwnerPlayer.color,
+                    iconImg: selectedOwnerPlayer.icon
+                      ? ICONS.find((i) => i.id === selectedOwnerPlayer.icon)?.img
+                      : null,
+                  }
                 }
-              }
-              onBuildHouse={() => emitPropertyAction("buyHouse")}
-              onSellHouse={() => emitPropertyAction("sellHouse")}
-              onMortgage={() => emitPropertyAction(selectedMortgaged ? "unmortgageProperty" : "mortgageProperty")}
-              canBuildHouse={isMine && !selectedMortgaged && selectedHouses < 5}
-              canSellHouse={isMine && selectedHouses > 0}
-              canMortgage={isMine && (selectedMortgaged || selectedHouses === 0)}
-              error={cardError}
-            />
+                showActions={false}
+              />
+            ) : (
+              <PropertyCardDetail
+                tile={selectedTile}
+                houses={selectedHouses}
+                mortgaged={selectedMortgaged}
+                owner={
+                  selectedOwnerPlayer && {
+                    name: selectedOwnerPlayer.name,
+                    color: selectedOwnerPlayer.color,
+                    iconImg: selectedOwnerPlayer.icon
+                      ? ICONS.find((i) => i.id === selectedOwnerPlayer.icon)?.img
+                      : null,
+                  }
+                }
+                showActions={false}
+              />
+            )}
           </div>
         )}
 
         <div className="cv2-center">
           <div className="cv2-title">Monoboly عرب</div>
 
-          <div className="cv2-dice-area">
+          <div className="cv2-dice-zone">
             <Dice roll={lastRoll} rollSeq={rollSeq} />
+          </div>
+
+          <div className="cv2-action-zone">
             {(() => {
               const isMyTurn = players[turnIndex]?.id === myId;
               const pending = state.pendingAction;
@@ -470,11 +542,11 @@ export default function BoardClassic({ state, myId }) {
               if (isMyTurn && pending?.type === "awaitBuy") {
                 return (
                   <div className="cv2-action-row">
-                    <button className="cv2-roll-btn" onClick={() => socket.emit("buyProperty")}>
-                      Buy
-                    </button>
                     <button className="cv2-roll-btn cv2-decline-btn" onClick={() => socket.emit("declineBuy")}>
                       Decline
+                    </button>
+                    <button className="cv2-roll-btn" onClick={() => socket.emit("buyProperty")}>
+                      Buy
                     </button>
                   </div>
                 );
@@ -542,30 +614,6 @@ export default function BoardClassic({ state, myId }) {
               }
               return null;
             })()}
-          </div>
-
-          <div className="cv2-players">
-            {players.filter((p) => !p.left).map((p) => (
-              <div key={p.id} className="cv2-player-row">
-                <span className="cv2-dot" style={{ background: p.color }} />
-                <span>{p.name}</span>
-                <span>${p.balance}</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="cv2-log-section">
-            <span className="cv2-log-title">📋 Game Log</span>
-            <div className="cv2-log-list">
-              {[...(state.log || [])].reverse().slice(0, 25).map((entry, i) => (
-                <div key={i} className={`cv2-log-entry${i === 0 ? " cv2-log-newest" : ""}`}>
-                  {entry}
-                </div>
-              ))}
-              {(!state.log || state.log.length === 0) && (
-                <div className="cv2-log-empty">Game started!</div>
-              )}
-            </div>
           </div>
         </div>
       </div>

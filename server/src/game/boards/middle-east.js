@@ -4,11 +4,14 @@
 // theme (board rendering is fully data-driven, no per-map client code).
 import { TILE_TYPES } from "../tile-types.js";
 
+// `basePrice` is the group's cheapest tile -- rentLevels is tuned for that
+// price point, and any pricier tile in the same group scales up from it (see
+// the per-tile rent scaling pass below BOARD).
 const COLOR_GROUPS = {
-  gulf:    { color: "#16a596", rentLevels: [2, 10, 30, 90, 160, 250],    housePrice: 50 },
-  hijaz:   { color: "#e67e22", rentLevels: [6, 30, 90, 270, 400, 550],   housePrice: 50 },
-  levant:  { color: "#8e44ad", rentLevels: [10, 50, 150, 450, 625, 750], housePrice: 100 },
-  capital: { color: "#c0392b", rentLevels: [14, 70, 200, 550, 750, 950], housePrice: 100 },
+  gulf:    { color: "#16a596", basePrice: 60,  rentLevels: [2, 10, 30, 90, 160, 250],    housePrice: 50 },
+  hijaz:   { color: "#e67e22", basePrice: 100, rentLevels: [6, 30, 90, 270, 400, 550],   housePrice: 50 },
+  levant:  { color: "#8e44ad", basePrice: 140, rentLevels: [10, 50, 150, 450, 625, 750], housePrice: 100 },
+  capital: { color: "#c0392b", basePrice: 180, rentLevels: [14, 70, 200, 550, 750, 950], housePrice: 100 },
 };
 
 const STATION_RENT = [25, 50, 100, 200]; // by count of the 4 stations owned
@@ -54,6 +57,18 @@ export const BOARD = [
   { id: 22, type: TILE_TYPES.TRANSIT,       name: "محطة الخليج", price: 150, rent: STATION_RENT },
   { id: 23, type: TILE_TYPES.TAX,           name: "جمارك", amount: 120 },
 ];
+
+// Rent scales per tile, not just per group -- see classic-vintage.js for the
+// full explanation. Here it only actually changes anything for "capital"
+// (عمّان $180 vs القاهرة $200); every other group is priced identically
+// across its own tiles, so the scale factor is 1 and nothing moves.
+for (const tile of BOARD) {
+  if (tile.type !== TILE_TYPES.PROPERTY) continue;
+  const { basePrice } = COLOR_GROUPS[tile.group];
+  if (tile.price === basePrice) continue;
+  const scale = tile.price / basePrice;
+  tile.rent = tile.rent.map((r) => Math.round(r * scale));
+}
 
 export const TOTAL_TILES = BOARD.length;
 export const COLOR_GROUP_DEFS = COLOR_GROUPS;

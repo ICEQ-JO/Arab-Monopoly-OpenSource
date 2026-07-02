@@ -1,10 +1,12 @@
 import { ICONS } from "../data/icons";
 
-export default function PlayerToken({ player, stackIndex, stackTotal, isMoving, justBought, isActiveTurn }) {
+export default function PlayerToken({ player, stackIndex, stackTotal, leftPct, topPct, isMoving, justBought, isActiveTurn }) {
   const wrapStyle = {
     "--c": player.color,
     "--i": stackIndex,
     "--n": stackTotal,
+    left: `${leftPct}%`,
+    top: `${topPct}%`,
   };
   const innerCls = [
     "cv2-token-inner",

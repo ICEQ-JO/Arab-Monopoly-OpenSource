@@ -141,39 +141,6 @@
   z-index: 2;
 }
 
-/* ---------- Ownership bar — sits just inside the band (still on the inner side) ---------- */
-.cv2-side-top .cv2-owner-bar {
-  position: absolute;
-  bottom: 28%;
-  left: 0;
-  right: 0;
-  height: 5px;
-}
-
-.cv2-side-right .cv2-owner-bar {
-  position: absolute;
-  left: 28%;
-  top: 0;
-  bottom: 0;
-  width: 5px;
-}
-
-.cv2-side-bottom .cv2-owner-bar {
-  position: absolute;
-  top: 28%;
-  left: 0;
-  right: 0;
-  height: 5px;
-}
-
-.cv2-side-left .cv2-owner-bar {
-  position: absolute;
-  right: 28%;
-  top: 0;
-  bottom: 0;
-  width: 5px;
-}
-
 /* ---------- Tile body (name only — price moved to .cv2-price-tag) ---------- */
 .cv2-body {
   flex: 1;
@@ -254,7 +221,7 @@
   font-weight: 900;
 }
 
-/* ---------- Dev badge (house count / mortgaged) ---------- */
+/* ---------- Dev badge (mortgaged) ---------- */
 .cv2-dev {
   position: absolute;
   top: 2px;
@@ -270,47 +237,77 @@
   z-index: 4;
 }
 
+/* ---------- Building badge (houses / hotel) ---------- */
+/* No badge background/border -- just the icon + count sitting directly on
+   the tile, so it reads as part of the tile rather than a pill stuck on top. */
+.cv2-building-badge {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.cv2-building-icon {
+  width: 12px;
+  height: 12px;
+  display: block;
+  background-color: #7a1c1c;
+  /* Icons ship as solid black silhouettes -- masking (not an <img>) lets the
+     source art be recolored to any color via background-color, here red so
+     it stays visible with no badge fill behind it. */
+  -webkit-mask: var(--icon-url) no-repeat center / contain;
+  mask: var(--icon-url) no-repeat center / contain;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
+}
+
+.cv2-building-count {
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  color: #111;
+  font-family: "Arvo", Georgia, serif;
+}
+
 /* ---------- Player tokens ---------- */
-/* Tokens live in their own grid overlay on top of the whole board (see
+/* Tokens live in their own overlay on top of the whole board (see
    .cv2-token-layer below), NOT nested inside a .cv2-tile -- every tile has
    `overflow: hidden` (needed to keep long names/badges from spilling), which
    would otherwise clip a token the instant it's elevated or stacked past the
-   tile's own box. Rendering the overlay as a board-wide sibling with its own
-   (identical) grid template keeps each stack aligned to its tile's cell while
-   staying free to rise/overlap without ever being clipped by tile edges. */
+   tile's own box. Rendering the overlay as a board-wide sibling keeps every
+   token free to rise/overlap without ever being clipped by tile edges. */
 .cv2-token-layer {
   position: absolute;
   inset: 0;
-  display: grid;
   z-index: 50;
   pointer-events: none;
 }
 
-.cv2-token-cell {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Outer wrapper: every token is absolutely anchored to the CELL's center
-   (not laid out in normal flex flow -- flex would place same-size siblings
-   side by side before any transform even runs, so a translateX offset just
-   pushed them further apart instead of overlapping them). All tokens start
-   from the exact same center point via `translate(-50%, -50%)`, then each
-   later occupant is nudged right from that shared point by only 30% of its
-   own width, so it visibly overlaps the ones before it instead of merely
-   sitting next to them, with a higher z-index so it's drawn on top -- like
-   two coins stacked at a steep angle rather than fanned out across the tile. */
+/* Positioned with plain left/top percentages (of the whole board, set
+   inline by PlayerToken from trackCenters in BoardClassic.jsx) rather than
+   CSS grid placement -- grid-row/column snaps instantly and can't be
+   animated, but left/top can, via the transition below. A move steps
+   `visualPositions` through each tile it passes one at a time (see the
+   effect in BoardClassic.jsx), and this transition is what turns that
+   sequence of small percentage jumps into one continuous glide along the
+   board instead of a teleport. Keep the duration in sync with GLIDE_STEP_MS
+   there so each leg finishes exactly as the next one starts.
+   All tokens are anchored the same way at their tile's center via
+   `translate(-50%, -50%)`, then each later occupant on that tile is nudged
+   right from that shared point by only 30% of its own width, so it visibly
+   overlaps the ones before it instead of merely sitting next to them, with
+   a higher z-index so it's drawn on top -- like coins stacked at an angle
+   rather than fanned out across the tile. */
 .cv2-token {
   position: absolute;
-  top: 50%;
-  left: 50%;
   width: clamp(19px, 3.9vw, 39px);
   aspect-ratio: 1;
   transform: translate(-50%, -50%) translateX(calc(var(--i, 0) * 30%));
   z-index: calc(20 + var(--i, 0));
-  transition: transform 0.2s ease;
+  transition: left 0.11s linear, top 0.11s linear, transform 0.2s ease;
 }
 
 /* Inner element: carries all animations (bob/hop/celebrate), kept separate
@@ -590,17 +587,18 @@
 }
 
 /* ---------- Board center ---------- */
+/* Three even thirds: title on top, dice in the middle, actions on the
+   bottom -- each zone centers its own content within its band. */
 .cv2-center {
   grid-row: 2 / 13;
   grid-column: 2 / 13;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: 1fr 1fr 1fr;
   align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
+  justify-items: center;
   background: #faf6e8 url("/board-pattern.png") center / cover no-repeat;
   border: 2px double #333;
-  padding: 7% 12px 4%;
+  padding: 4% 12px;
   min-height: 0;
 }
 
@@ -617,17 +615,20 @@
   box-shadow: 3px 4px 0 #7a0000;
   transform: rotate(-1.5deg);
   text-shadow: 1px 1px 0 #7a0000;
-  margin-bottom: 0;
-  flex-shrink: 0;
 }
 
-.cv2-dice-area {
+.cv2-dice-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cv2-action-zone {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 48px;
-  flex-shrink: 0;
+  gap: 14px;
   width: 100%;
 }
 
@@ -686,43 +687,6 @@
   max-width: 320px;
 }
 
-.cv2-players {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 140px;
-}
-
-.cv2-player-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: Georgia, serif;
-  font-size: clamp(9px, 1.1vw, 13px);
-  font-weight: 600;
-  color: #111;
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  border-radius: 3px;
-  padding: 2px 6px;
-}
-
-.cv2-player-row span:last-child {
-  margin-left: auto;
-  font-weight: 700;
-  color: #3d1c00;
-}
-
-.cv2-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 1.5px solid #fff;
-  box-shadow: 0 0 0 1px rgba(0,0,0,0.35);
-  flex-shrink: 0;
-}
-
 /* ---------- Clickable tiles + property info card ---------- */
 .cv2-tile-clickable {
   cursor: pointer;
@@ -732,65 +696,5 @@
   outline: 3px solid #c9960a;
   outline-offset: -3px;
   z-index: 3;
-}
-
-/* ---------- Board-center game log ---------- */
-.cv2-log-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-  max-width: 460px;
-  flex: 1;
-  min-height: 0;
-}
-
-.cv2-log-title {
-  font-family: Georgia, "Times New Roman", "Amiri", serif;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  color: #6b5a3a;
-  text-align: center;
-  flex-shrink: 0;
-}
-
-.cv2-log-list {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  flex: 1;
-  min-height: 60px;
-  overflow-y: auto;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.55);
-  border: 2px solid #333;
-  border-radius: 16px;
-  /* Scrolling stays functional, just without a visible scrollbar track. */
-  scrollbar-width: none;
-}
-.cv2-log-list::-webkit-scrollbar {
-  display: none;
-}
-
-.cv2-log-entry {
-  font-size: 11px;
-  color: #2a1c0d;
-  padding: 4px 8px;
-  line-height: 1.35;
-}
-
-.cv2-log-entry.cv2-log-newest {
-  color: #7a4f00;
-  font-weight: 700;
-}
-
-.cv2-log-empty {
-  font-size: 11px;
-  color: #6b5a3a;
-  font-style: italic;
-  padding: 4px 8px;
-  text-align: center;
 }
 

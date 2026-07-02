@@ -1,5 +1,15 @@
 import { useState } from "react";
 import { socket } from "../socket";
+import PlayerAvatar from "./PlayerAvatar";
+import TradeCountdown from "./TradeCountdown";
+
+const TIME_LIMIT_OPTIONS = [
+  { label: "No limit", value: null },
+  { label: "30s", value: 30 },
+  { label: "1m", value: 60 },
+  { label: "2m", value: 120 },
+  { label: "5m", value: 300 },
+];
 
 function tradeableTiles(board, ownership, playerId) {
   return board.filter((t) => {
@@ -8,23 +18,80 @@ function tradeableTiles(board, ownership, playerId) {
   });
 }
 
+// Transit tiles have no color `groupColor` of their own (they're not part
+// of a color group) -- falls back to the same blue used for their title-deed
+// card (see TransitCardDetail/propertyCardDetail.css's --transit band).
+function chipColor(tile) {
+  return tile.groupColor || (tile.type === "transit" ? "#1684b7" : "#888");
+}
+
+// Reduces a trade (always stored fromId/offer.. toId/request..) down to
+// "what do I give / get" from the perspective of whoever's looking at it --
+// lets the same read-only view render correctly for both the proposer and
+// the recipient without the caller worrying about which side is which.
+function perspectiveOf(trade, myId) {
+  const mine = trade.fromId === myId;
+  return {
+    mine,
+    otherId: mine ? trade.toId : trade.fromId,
+    giveProperties: mine ? trade.offerProperties : trade.requestProperties,
+    giveMoney: mine ? trade.offerMoney : trade.requestMoney,
+    getProperties: mine ? trade.requestProperties : trade.offerProperties,
+    getMoney: mine ? trade.requestMoney : trade.offerMoney,
+  };
+}
+
 function PropChip({ tile, selected, onToggle }) {
   return (
     <div
       className={`trade-prop-chip${selected ? " selected" : ""}`}
+      style={{ "--chip-color": chipColor(tile) }}
       onClick={() => onToggle(tile.id)}
     >
-      <span className="prop-dot" style={{ background: tile.color || "#888" }} />
-      {tile.name}
+      <span className="prop-dot" />
+      <span className="trade-prop-chip-name">{tile.name}</span>
+      <span className="trade-prop-chip-price">${tile.price}</span>
     </div>
   );
 }
 
-function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitLabel, onBack }) {
+// Non-interactive twin of PropChip, used by TradeView to display the fixed
+// contents of an existing trade (nothing to toggle there).
+function StaticPropChip({ tile }) {
+  return (
+    <div className="trade-prop-chip trade-prop-chip--static" style={{ "--chip-color": chipColor(tile) }}>
+      <span className="prop-dot" />
+      <span className="trade-prop-chip-name">{tile.name}</span>
+      <span className="trade-prop-chip-price">${tile.price}</span>
+    </div>
+  );
+}
+
+// Same visual as the editable coin slider, but locked to the trade's fixed
+// amount -- keeps the read-only view looking like the same screen instead
+// of a different summary layout.
+function StaticMoneyRow({ amount }) {
+  return (
+    <div className="trade-money-row">
+      <div className="trade-money-label">
+        <span>Coins</span>
+        <span className="trade-money-amount">${amount}</span>
+      </div>
+      <input type="range" min="0" max={Math.max(amount, 1)} value={amount} disabled />
+      <div className="trade-money-range-caps">
+        <span>$0</span>
+        <span>${amount}</span>
+      </div>
+    </div>
+  );
+}
+
+function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitLabel, onBack, onCancel }) {
   const [offerIds, setOfferIds] = useState([]);
   const [requestIds, setRequestIds] = useState([]);
   const [offerMoney, setOfferMoney] = useState(0);
   const [requestMoney, setRequestMoney] = useState(0);
+  const [timeLimitSec, setTimeLimitSec] = useState(null);
   const [error, setError] = useState("");
 
   const me = players.find((p) => p.id === myId);
@@ -46,6 +113,7 @@ function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitL
         offerMoney: Math.min(Number(offerMoney) || 0, maxOffer),
         requestProperties: requestIds,
         requestMoney: Math.min(Number(requestMoney) || 0, maxRequest),
+        timeLimitSec,
       },
       (res) => {
         if (res?.error) return setError(res.error);
@@ -58,13 +126,13 @@ function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitL
       {/* Who we're trading with */}
       <div className="trade-form-header">
         <div className="trade-form-player-chip">
-          <span className="swatch" style={{ background: me?.color }} />
+          <PlayerAvatar player={me} sizeClass="swatch" />
           <span className="trade-form-player-name">{me?.name} (you)</span>
           <span className="trade-form-balance-badge">${me?.balance ?? 0}</span>
         </div>
         <span className="trade-form-vs">⇄</span>
         <div className="trade-form-player-chip">
-          <span className="swatch" style={{ background: them?.color }} />
+          <PlayerAvatar player={them} sizeClass="swatch" />
           <span className="trade-form-player-name">{them?.name}</span>
           <span className="trade-form-balance-badge">${them?.balance ?? 0}</span>
         </div>
@@ -89,6 +157,10 @@ function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitL
               <span className="trade-money-amount">${offerMoney}</span>
             </div>
             <input type="range" min="0" max={maxOffer} value={Math.min(offerMoney, maxOffer)} onChange={(e) => setOfferMoney(Number(e.target.value))} />
+            <div className="trade-money-range-caps">
+              <span>$0</span>
+              <span>${maxOffer}</span>
+            </div>
           </div>
         </div>
 
@@ -106,72 +178,157 @@ function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitL
               <span className="trade-money-amount">${requestMoney}</span>
             </div>
             <input type="range" min="0" max={maxRequest} value={Math.min(requestMoney, maxRequest)} onChange={(e) => setRequestMoney(Number(e.target.value))} />
+            <div className="trade-money-range-caps">
+              <span>$0</span>
+              <span>${maxRequest}</span>
+            </div>
           </div>
+        </div>
+      </div>
+
+      <div className="trade-time-limit-row">
+        <span className="trade-col-label">Time limit</span>
+        <div className="trade-time-limit-options">
+          {TIME_LIMIT_OPTIONS.map((opt) => (
+            <button
+              key={opt.label}
+              type="button"
+              className={`trade-time-limit-btn${timeLimitSec === opt.value ? " active" : ""}`}
+              onClick={() => setTimeLimitSec(opt.value)}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
       </div>
 
       {error && <p className="error" style={{ margin: 0 }}>{error}</p>}
 
       <div className="trade-modal-footer">
+        {onCancel && <button onClick={onCancel}>Cancel</button>}
         <button className="primary" onClick={submit}>{submitLabel}</button>
       </div>
     </>
   );
 }
 
-function IncomingCard({ trade, board, ownership, players, myId, onClose }) {
-  const [countering, setCountering] = useState(false);
-  const from = players.find((p) => p.id === trade.fromId);
-  const offerNames = trade.offerProperties.map((id) => board[id].name);
-  const requestNames = trade.requestProperties.map((id) => board[id].name);
+// Read-only view of a single open trade (incoming or outgoing), styled the
+// same as the editable TradeForm above so opening a trade from the list
+// reads as "the same screen, just locked". The recipient gets
+// Accept/Decline/Counter; the proposer (viewing their own pending offer)
+// just gets Cancel. Counter hands off to TradeModal to swap this view for
+// an editable TradeForm instead of toggling any state in here.
+function TradeView({ trade, board, players, myId, onBack, onCounter }) {
+  const [error, setError] = useState("");
+  const { mine, otherId, giveProperties, giveMoney, getProperties, getMoney } = perspectiveOf(trade, myId);
+  const me = players.find((p) => p.id === myId);
+  const other = players.find((p) => p.id === otherId);
+  const giveTiles = giveProperties.map((id) => board[id]).filter(Boolean);
+  const getTiles = getProperties.map((id) => board[id]).filter(Boolean);
 
-  function counter(params, ack) {
-    socket.emit("counterTrade", { tradeId: trade.id, ...params }, (res) => {
-      ack(res);
-      if (res?.ok) setCountering(false);
+  function respond(accept) {
+    setError("");
+    socket.emit("respondTrade", { tradeId: trade.id, accept }, (res) => {
+      if (res?.error) return setError(res.error);
+      if (accept) onBack();
+    });
+  }
+
+  function cancelOffer() {
+    setError("");
+    socket.emit("cancelTrade", { tradeId: trade.id }, (res) => {
+      if (res?.error) setError(res.error);
     });
   }
 
   return (
-    <div className="incoming-trade-section">
-      <div className="incoming-trade-label">Incoming offer from {from?.name}</div>
-      <p style={{ margin: 0, fontSize: 13 }}>
-        <strong>Gives you:</strong> {[...offerNames, trade.offerMoney > 0 ? `$${trade.offerMoney}` : null].filter(Boolean).join(", ") || "nothing"}
-      </p>
-      <p style={{ margin: 0, fontSize: 13 }}>
-        <strong>Wants:</strong> {[...requestNames, trade.requestMoney > 0 ? `$${trade.requestMoney}` : null].filter(Boolean).join(", ") || "nothing"}
-      </p>
-      {!countering ? (
-        <div className="action-row">
-          <button className="primary" onClick={() => { socket.emit("respondTrade", { tradeId: trade.id, accept: true }); onClose(); }}>Accept</button>
-          <button onClick={() => socket.emit("respondTrade", { tradeId: trade.id, accept: false })}>Decline</button>
-          <button onClick={() => setCountering(true)}>Counter</button>
+    <>
+      <div className="trade-form-header">
+        <div className="trade-form-player-chip">
+          <PlayerAvatar player={me} sizeClass="swatch" />
+          <span className="trade-form-player-name">{me?.name} (you)</span>
+          <span className="trade-form-balance-badge">${me?.balance ?? 0}</span>
         </div>
-      ) : (
-        <>
-          <TradeForm
-            board={board} ownership={ownership} players={players}
-            myId={myId} otherId={trade.fromId}
-            onSubmit={counter} submitLabel="Send counter-offer"
-            onBack={() => setCountering(false)}
-          />
-        </>
+        <span className="trade-form-vs">⇄</span>
+        <div className="trade-form-player-chip">
+          <PlayerAvatar player={other} sizeClass="swatch" />
+          <span className="trade-form-player-name">{other?.name}</span>
+          <span className="trade-form-balance-badge">${other?.balance ?? 0}</span>
+        </div>
+        <button onClick={onBack} style={{ marginLeft: "auto", fontSize: 12, padding: "4px 10px" }}>
+          ← Back
+        </button>
+      </div>
+
+      {trade.deadline && (
+        <p className="trade-deadline-banner">
+          Expires in <TradeCountdown deadline={trade.deadline} />
+        </p>
       )}
-    </div>
+
+      <div className="trade-cols-2">
+        <div className="trade-col-side">
+          <div className="trade-col-label">You give</div>
+          {giveTiles.length === 0 && giveMoney === 0 && <p className="hint" style={{ margin: 0, fontSize: 12 }}>Nothing</p>}
+          {giveTiles.map((t) => <StaticPropChip key={t.id} tile={t} />)}
+          {giveMoney > 0 && <StaticMoneyRow amount={giveMoney} />}
+        </div>
+
+        <div className="trade-col-divider" />
+
+        <div className="trade-col-side">
+          <div className="trade-col-label">You get</div>
+          {getTiles.length === 0 && getMoney === 0 && <p className="hint" style={{ margin: 0, fontSize: 12 }}>Nothing</p>}
+          {getTiles.map((t) => <StaticPropChip key={t.id} tile={t} />)}
+          {getMoney > 0 && <StaticMoneyRow amount={getMoney} />}
+        </div>
+      </div>
+
+      {error && <p className="error" style={{ margin: 0 }}>{error}</p>}
+
+      <div className="trade-modal-footer">
+        {mine ? (
+          <button onClick={cancelOffer}>Cancel</button>
+        ) : (
+          <>
+            <button onClick={() => respond(false)}>Decline</button>
+            <button onClick={onCounter}>Counter</button>
+            <button className="primary" onClick={() => respond(true)}>Accept</button>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 
 export default function TradeModal({ state, myId, onClose }) {
   const { board, ownership, players, trades } = state;
-  const [step, setStep] = useState("menu"); // "menu" | playerId string
+  // { type: "menu" } | { type: "propose", playerId } | { type: "view", tradeId } | { type: "counter", tradeId }
+  const [screen, setScreen] = useState({ type: "menu" });
   const others = players.filter((p) => p.id !== myId && !p.bankrupt && !p.left);
-  const incoming = trades.filter((t) => t.toId === myId);
-  const outgoing = trades.filter((t) => t.fromId === myId);
+  const openTrades = trades.filter((t) => t.toId === myId || t.fromId === myId);
+
+  // A trade a screen is pointing at can vanish out from under it (accepted,
+  // declined, or canceled by the other side) -- fall back to the menu
+  // instead of rendering a view/counter screen with nothing to show.
+  const activeTrade = (screen.type === "view" || screen.type === "counter")
+    ? openTrades.find((t) => t.id === screen.tradeId)
+    : null;
+  const effectiveScreen = (screen.type === "view" || screen.type === "counter") && !activeTrade
+    ? { type: "menu" }
+    : screen;
 
   function proposeNew(params, ack) {
-    socket.emit("proposeTrade", { toId: step, ...params }, (res) => {
+    socket.emit("proposeTrade", { toId: effectiveScreen.playerId, ...params }, (res) => {
       ack(res);
-      if (res?.ok) setStep("menu");
+      if (res?.ok) setScreen({ type: "menu" });
+    });
+  }
+
+  function counterExisting(params, ack) {
+    socket.emit("counterTrade", { tradeId: effectiveScreen.tradeId, ...params }, (res) => {
+      ack(res);
+      if (res?.ok) setScreen({ type: "menu" });
     });
   }
 
@@ -179,63 +336,86 @@ export default function TradeModal({ state, myId, onClose }) {
     <div className="trade-modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="trade-modal">
         <div className="trade-modal-header">
-          <h2>{step === "menu" ? "Trade" : "Propose Trade"}</h2>
+          <h2>{effectiveScreen.type === "menu" ? "Trade" : "Propose Trade"}</h2>
           <button className="trade-modal-close" onClick={onClose}>✕</button>
         </div>
 
         <div className="trade-modal-body">
-          {/* Incoming trades always visible at top */}
-          {incoming.map((t) => (
-            <IncomingCard key={t.id} trade={t} board={board} ownership={ownership} players={players} myId={myId} onClose={onClose} />
-          ))}
-
-          {/* Outgoing pending */}
-          {outgoing.map((t) => {
-            const to = players.find((p) => p.id === t.toId);
-            return (
-              <div key={t.id} className="incoming-trade-section">
-                <div className="incoming-trade-label" style={{ color: "var(--text-dim)" }}>Pending offer to {to?.name}</div>
-                <p style={{ margin: 0, fontSize: 12, color: "var(--text-dim)" }}>Waiting for response…</p>
-                <div className="action-row">
-                  <button onClick={() => socket.emit("cancelTrade", { tradeId: t.id })}>Cancel</button>
-                </div>
-              </div>
-            );
-          })}
-
-          {/* Step 1: pick player */}
-          {step === "menu" && others.length > 0 && (
+          {effectiveScreen.type === "menu" && (
             <>
-              <p style={{ margin: 0, fontSize: 13, color: "var(--text-dim)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px" }}>
-                Select a player to trade with:
-              </p>
-              <div className="trade-player-list">
-                {others.map((p) => (
-                  <button key={p.id} className="trade-player-btn" onClick={() => setStep(p.id)}>
-                    <span className="swatch" style={{ background: p.color }} />
-                    <span className="trade-player-btn-name">{p.name}</span>
-                    <span className="trade-player-btn-balance">
-                      <span className="trade-balance-label">Balance</span>
-                      <span className="trade-balance-amount">${p.balance}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
+              {openTrades.length > 0 && (
+                <>
+                  <p className="trade-section-label">Open trades:</p>
+                  <div className="trade-player-list">
+                    {openTrades.map((t) => {
+                      const incomingTrade = t.toId === myId;
+                      const other = players.find((p) => p.id === (incomingTrade ? t.fromId : t.toId));
+                      return (
+                        <button key={t.id} className="trade-player-btn" onClick={() => setScreen({ type: "view", tradeId: t.id })}>
+                          <PlayerAvatar player={other} sizeClass="swatch" />
+                          <span className="trade-player-btn-name">
+                            {incomingTrade ? `Offer from ${other?.name}` : `Offer to ${other?.name}`}
+                          </span>
+                          {t.deadline && <TradeCountdown deadline={t.deadline} />}
+                          <span className={`trade-direction-badge${incomingTrade ? " incoming" : " outgoing"}`}>
+                            {incomingTrade ? "Incoming" : "Pending"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {others.length > 0 && (
+                <>
+                  <p className="trade-section-label">Select a player to trade with:</p>
+                  <div className="trade-player-list">
+                    {others.map((p) => (
+                      <button key={p.id} className="trade-player-btn" onClick={() => setScreen({ type: "propose", playerId: p.id })}>
+                        <PlayerAvatar player={p} sizeClass="swatch" />
+                        <span className="trade-player-btn-name">{p.name}</span>
+                        <span className="trade-player-btn-balance">
+                          <span className="trade-balance-label">Balance</span>
+                          <span className="trade-balance-amount">${p.balance}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {others.length === 0 && openTrades.length === 0 && (
+                <p className="hint" style={{ margin: 0 }}>No other active players to trade with.</p>
+              )}
             </>
           )}
 
-          {/* Step 2: trade form */}
-          {step !== "menu" && (
+          {effectiveScreen.type === "propose" && (
             <TradeForm
               board={board} ownership={ownership} players={players}
-              myId={myId} otherId={step}
+              myId={myId} otherId={effectiveScreen.playerId}
               onSubmit={proposeNew} submitLabel="Send Offer"
-              onBack={() => setStep("menu")}
+              onBack={() => setScreen({ type: "menu" })}
             />
           )}
 
-          {others.length === 0 && incoming.length === 0 && (
-            <p className="hint" style={{ margin: 0 }}>No other active players to trade with.</p>
+          {effectiveScreen.type === "view" && activeTrade && (
+            <TradeView
+              trade={activeTrade} board={board} players={players} myId={myId}
+              onBack={() => setScreen({ type: "menu" })}
+              onCounter={() => setScreen({ type: "counter", tradeId: activeTrade.id })}
+            />
+          )}
+
+          {effectiveScreen.type === "counter" && activeTrade && (
+            <TradeForm
+              board={board} ownership={ownership} players={players}
+              myId={myId} otherId={activeTrade.fromId}
+              onSubmit={counterExisting} submitLabel="Send counter-offer"
+              onBack={() => setScreen({ type: "view", tradeId: activeTrade.id })}
+              onCancel={() => setScreen({ type: "view", tradeId: activeTrade.id })}
+            />
           )}
         </div>
       </div>

@@ -9,12 +9,13 @@ export function makeRoom(names = ["Alice", "Bob"]) {
 }
 
 // Always clear timers a test may have armed (turn timer, any open auctions, any
-// disconnect grace periods) -- node:test runs everything in one process, so a
-// leaked setTimeout (the 4-minute turn timer, a 10s auction) keeps the process
-// alive and can make an unrelated later test look like it's hanging.
+// time-limited trades, any disconnect grace periods) -- node:test runs everything
+// in one process, so a leaked setTimeout (the 4-minute turn timer, a 10s auction)
+// keeps the process alive and can make an unrelated later test look like it's hanging.
 export function cleanup(room) {
   room.clearTurnTimer();
   room.clearAllAuctionTimers();
+  room.clearAllTradeTimers();
   for (const player of room.players) {
     if (player.graceTimer) clearTimeout(player.graceTimer);
   }

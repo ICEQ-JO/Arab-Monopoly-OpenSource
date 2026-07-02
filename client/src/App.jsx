@@ -7,6 +7,7 @@ import BoardClassic from "./components/BoardClassic";
 import PlayersPanel from "./components/PlayersPanel";
 import MyProperties from "./components/MyProperties";
 import OpenTrades from "./components/OpenTrades";
+import GameLog from "./components/GameLog";
 import TradeModal from "./components/TradeModal";
 import AuctionModal from "./components/AuctionModal";
 import RulesPanel from "./components/RulesPanel";
@@ -237,6 +238,7 @@ function App() {
           onToggleTheme={toggleTheme}
         />
         <OpenTrades state={state} myId={myId} onOpen={() => setTradeOpen(true)} />
+        <GameLog state={state} />
       </div>
 
       {tradeOpen && state.started && (

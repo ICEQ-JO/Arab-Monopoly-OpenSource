@@ -13,6 +13,8 @@ export const DISCONNECT_GRACE_MS = 20 * 1000;
 export const MORTGAGE_INTEREST_RATE = 0.1;
 export const AUCTION_BASE_MS = 10 * 1000;
 export const AUCTION_EXTEND_MS = 3 * 1000;
+export const MIN_TRADE_TIME_LIMIT_SEC = 10;
+export const MAX_TRADE_TIME_LIMIT_SEC = 10 * 60;
 
 const PLAYER_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6", "#1abc9c"];
 
@@ -265,6 +267,12 @@ export class Room {
   clearAllAuctionTimers() {
     for (const auction of this.auctions) {
       if (auction.timer) clearTimeout(auction.timer);
+    }
+  }
+
+  clearAllTradeTimers() {
+    for (const trade of this.trades) {
+      this.clearTradeTimer(trade);
     }
   }
 
@@ -597,6 +605,9 @@ export class Room {
       passedIds: [],
       deadline: Date.now() + AUCTION_BASE_MS,
       timer: null,
+      // Short-form bid/pass history scoped to just this auction -- separate from
+      // the room-wide game log so the auction popup can show its own play-by-play.
+      log: [],
     };
     this.auctions.push(auction);
     this.pendingAction = { type: "auction", tileId, auctionId: auction.id, playerId: this.currentPlayer()?.id };
@@ -634,6 +645,7 @@ export class Room {
     auction.highestBid = amount;
     auction.highestBidderId = playerId;
     auction.deadline = Math.max(auction.deadline, Date.now() + AUCTION_EXTEND_MS);
+    auction.log.push(`${player.name} bid $${amount}.`);
     this.scheduleAuctionTimer(auction.id);
     this.pushLog(`${player.name} bid ${amount} coins on ${this._board[auction.tileId].name}.`);
     this.maybeResolveAuction(auction.id);
@@ -645,6 +657,7 @@ export class Room {
     if (!auction) return { error: "Auction not found" };
     if (!auction.passedIds.includes(playerId)) {
       auction.passedIds.push(playerId);
+      auction.log.push(`${this.playerById(playerId)?.name ?? "A player"} passed.`);
       this.pushLog(`${this.playerById(playerId)?.name ?? "A player"} passed on ${this._board[auction.tileId].name}.`);
       this.maybeResolveAuction(auction.id);
     }
@@ -805,7 +818,7 @@ export class Room {
   // Shared validation for any new trade, whether it's a fresh proposal or a
   // counter-offer replacing one. Returns { trade } on success, { error } otherwise --
   // never mutates this.trades itself, so callers decide what to do with the result.
-  buildTrade(fromId, { toId, offerProperties = [], offerMoney = 0, requestProperties = [], requestMoney = 0 }) {
+  buildTrade(fromId, { toId, offerProperties = [], offerMoney = 0, requestProperties = [], requestMoney = 0, timeLimitSec = null }) {
     const fromPlayer = this.playerById(fromId);
     const toPlayer = this.playerById(toId);
     if (!fromPlayer || fromPlayer.bankrupt || fromPlayer.left) return { error: "You can't trade right now" };
@@ -822,15 +835,55 @@ export class Room {
     if (!requestProperties.every((id) => this.isTradeable(id, toId))) {
       return { error: "You can only request undeveloped properties they own" };
     }
+    if (timeLimitSec != null && (!Number.isInteger(timeLimitSec) ||
+      timeLimitSec < MIN_TRADE_TIME_LIMIT_SEC || timeLimitSec > MAX_TRADE_TIME_LIMIT_SEC)) {
+      return { error: "Invalid time limit" };
+    }
     return {
-      trade: { id: nanoid(), fromId, toId, offerProperties, offerMoney, requestProperties, requestMoney },
+      trade: {
+        id: nanoid(), fromId, toId, offerProperties, offerMoney, requestProperties, requestMoney,
+        deadline: timeLimitSec ? Date.now() + timeLimitSec * 1000 : null,
+        timer: null,
+      },
     };
+  }
+
+  // Cancels a trade's own expiry timer (if it has one) without touching this.trades --
+  // callers still decide when/whether to actually remove the trade from the array.
+  clearTradeTimer(trade) {
+    if (trade?.timer) {
+      clearTimeout(trade.timer);
+      trade.timer = null;
+    }
+  }
+
+  // Time-limited trades ("30 seconds to accept or it's gone") auto-expire and drop
+  // off the table on their own -- mirrors scheduleAuctionTimer/resolveAuction's
+  // split between "arm a timer for this deadline" and "what happens when it fires".
+  scheduleTradeTimer(tradeId) {
+    const trade = this.trades.find((t) => t.id === tradeId);
+    if (!trade || !trade.deadline) return;
+    if (trade.timer) clearTimeout(trade.timer);
+    const delay = Math.max(0, trade.deadline - Date.now());
+    trade.timer = setTimeout(() => {
+      trade.timer = null;
+      this.expireTrade(tradeId);
+      this.notify?.();
+    }, delay);
+  }
+
+  expireTrade(tradeId) {
+    const trade = this.trades.find((t) => t.id === tradeId);
+    if (!trade) return;
+    this.trades = this.trades.filter((t) => t.id !== tradeId);
+    this.pushLog(`${this.playerById(trade.fromId)?.name ?? "A player"}'s trade offer to ${this.playerById(trade.toId)?.name ?? "a player"} expired.`);
   }
 
   proposeTrade(fromId, params) {
     const result = this.buildTrade(fromId, params);
     if (result.error) return result;
     this.trades.push(result.trade);
+    this.scheduleTradeTimer(result.trade.id);
     this.pushLog(`${this.playerById(fromId).name} proposed a trade with ${this.playerById(result.trade.toId).name}.`);
     return { ok: true, tradeId: result.trade.id };
   }
@@ -844,9 +897,11 @@ export class Room {
     if (!original) return { error: "Trade not found" };
     const result = this.buildTrade(playerId, { ...params, toId: original.fromId });
     if (result.error) return result;
+    this.clearTradeTimer(original);
     this.trades = this.trades.filter((t) => t.id !== tradeId);
     result.trade.counterOf = tradeId;
     this.trades.push(result.trade);
+    this.scheduleTradeTimer(result.trade.id);
     this.pushLog(`${this.playerById(playerId).name} countered ${this.playerById(original.fromId).name}'s trade offer.`);
     return { ok: true, tradeId: result.trade.id };
   }
@@ -854,6 +909,7 @@ export class Room {
   respondTrade(playerId, tradeId, accept) {
     const trade = this.trades.find((t) => t.id === tradeId && t.toId === playerId);
     if (!trade) return { error: "Trade not found" };
+    this.clearTradeTimer(trade);
     this.trades = this.trades.filter((t) => t.id !== tradeId);
 
     const fromPlayer = this.playerById(trade.fromId);
@@ -906,6 +962,7 @@ export class Room {
   cancelTrade(playerId, tradeId) {
     const trade = this.trades.find((t) => t.id === tradeId && t.fromId === playerId);
     if (!trade) return { error: "Trade not found" };
+    this.clearTradeTimer(trade);
     this.trades = this.trades.filter((t) => t.id !== tradeId);
     this.pushLog(`${this.playerById(playerId).name} cancelled their trade offer.`);
     return { ok: true };
@@ -913,6 +970,9 @@ export class Room {
 
   // Trades referencing a player who's no longer active would otherwise dangle forever.
   clearTradesInvolving(playerId) {
+    for (const trade of this.trades) {
+      if (trade.fromId === playerId || trade.toId === playerId) this.clearTradeTimer(trade);
+    }
     this.trades = this.trades.filter((t) => t.fromId !== playerId && t.toId !== playerId);
   }
 
@@ -991,7 +1051,7 @@ export class Room {
       pendingAction: this.pendingAction,
       winnerId: this.winnerId,
       turnDeadline: this.turnDeadline,
-      trades: this.trades,
+      trades: this.trades.map(({ timer, ...pub }) => pub),
       auctions: this.auctions.map(({ timer, ...pub }) => pub),
       canRollAgain: this.canRollAgain,
       board: this._board,
@@ -1019,7 +1079,7 @@ export class Room {
       lastCard: this.lastCard,
       pendingAction: this.pendingAction,
       winnerId: this.winnerId,
-      trades: this.trades,
+      trades: this.trades.map(({ timer, ...rest }) => rest),
       auctions: this.auctions.map(({ timer, ...rest }) => rest),
       canRollAgain: this.canRollAgain,
       consecutiveDoubles: this.consecutiveDoubles,
@@ -1056,7 +1116,7 @@ export class Room {
     // Same simplification as the turn timer below: old timer handles are gone, so
     // each restored auction gets a fresh full base window rather than trying to
     // preserve exactly how much time was left.
-    room.auctions = (snapshot.auctions || []).map((a) => ({ ...a, timer: null, deadline: Date.now() + AUCTION_BASE_MS }));
+    room.auctions = (snapshot.auctions || []).map((a) => ({ ...a, timer: null, deadline: Date.now() + AUCTION_BASE_MS, log: a.log || [] }));
     room.canRollAgain = snapshot.canRollAgain ?? true;
     room.consecutiveDoubles = snapshot.consecutiveDoubles || 0;
     room.rollSeq = snapshot.rollSeq || 0;
@@ -1071,6 +1131,12 @@ export class Room {
     }
     for (const auction of room.auctions) {
       room.scheduleAuctionTimer(auction.id);
+    }
+    // Unlike auctions, a trade's deadline is preserved as-is (not reset to a fresh
+    // window) -- if it's already past, scheduleTradeTimer's delay just clamps to 0
+    // and it expires on the next tick instead of silently living on forever.
+    for (const trade of room.trades) {
+      room.scheduleTradeTimer(trade.id);
     }
     return room;
   }

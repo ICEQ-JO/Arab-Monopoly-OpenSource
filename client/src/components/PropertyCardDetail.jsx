@@ -18,6 +18,8 @@ export default function PropertyCardDetail({
   canBuildHouse = false,
   canSellHouse = false,
   canMortgage = false,
+  showActions = true,
+  showOwner = true,
   error,
 }) {
   const mortgageValue = Math.floor(tile.price / 2);
@@ -32,40 +34,43 @@ export default function PropertyCardDetail({
       <div className="pcard-detail-body">
         <h3 className="pcard-detail-name">{tile.name}</h3>
         <div className="pcard-detail-rule" />
-        <p className="pcard-detail-rent-base">Rent ${baseRent}</p>
+        <p className="pcard-detail-rent-base">Rent <strong className="pcard-detail-value">${baseRent}</strong></p>
         <ul className="pcard-detail-rent-list">
           {houseRents.slice(0, 4).map((rent, i) => (
             <li key={i} className={`pcard-detail-rent-row${houses === i + 1 ? " current" : ""}`}>
               <span>With {HOUSE_LABELS[i]}</span>
-              <span>${rent}</span>
+              <span className="pcard-detail-value">${rent}</span>
             </li>
           ))}
         </ul>
         <p className={`pcard-detail-hotel-row${houses >= 5 ? " current" : ""}`}>
           <span>With Hotel</span>
-          <span>${hotelRent}</span>
+          <span className="pcard-detail-value">${hotelRent}</span>
         </p>
         <div className="pcard-detail-rule pcard-detail-rule--thin" />
-        <p className="pcard-detail-footnote">Mortgage Value ${mortgageValue}</p>
-        <p className="pcard-detail-footnote">Houses cost ${tile.housePrice} each</p>
-        <p className="pcard-detail-footnote">Hotels, ${tile.housePrice} plus 4 houses</p>
+        <p className="pcard-detail-footnote">Mortgage Value <strong className="pcard-detail-value">${mortgageValue}</strong></p>
+        <p className="pcard-detail-footnote">Houses cost <strong className="pcard-detail-value">${tile.housePrice}</strong> each</p>
+        <p className="pcard-detail-footnote">Hotels, <strong className="pcard-detail-value">${tile.housePrice}</strong> plus 4 houses</p>
 
-        {owner && (
-          <>
-            <div className="pcard-detail-rule pcard-detail-rule--thin" />
-            <div className="pcard-detail-owner-row">
-              {owner.iconImg && (
-                <img
-                  className="pcard-detail-owner-avatar"
-                  src={owner.iconImg}
-                  alt=""
-                  style={{ "--owner-ring": owner.color }}
-                />
-              )}
-              <span className="pcard-detail-owner-name">{owner.name}</span>
-            </div>
+        {((showOwner && owner) || showActions) && <div className="pcard-detail-rule pcard-detail-rule--thin" />}
 
-            <div className="pcard-detail-actions">
+        {showOwner && owner && (
+          <div className="pcard-detail-owner-row">
+            {owner.iconImg && (
+              <img
+                className="pcard-detail-owner-avatar"
+                src={owner.iconImg}
+                alt=""
+                style={{ "--owner-ring": owner.color }}
+              />
+            )}
+            <span className="pcard-detail-owner-name">{owner.name}</span>
+          </div>
+        )}
+
+        {showActions && (
+          <div className="pcard-detail-actions">
+            <div className="pcard-detail-actions-left">
               <button
                 className="pcard-detail-action-btn"
                 onClick={onBuildHouse}
@@ -84,17 +89,17 @@ export default function PropertyCardDetail({
               >
                 <IconArrowDown />
               </button>
-              <button
-                className="pcard-detail-action-btn pcard-detail-action-btn--danger"
-                onClick={onMortgage}
-                disabled={!canMortgage}
-                title={mortgaged ? "Pay off mortgage" : "Mortgage property"}
-                aria-label={mortgaged ? "Pay off mortgage" : "Mortgage property"}
-              >
-                <IconTrash />
-              </button>
             </div>
-          </>
+            <button
+              className="pcard-detail-action-btn pcard-detail-action-btn--danger"
+              onClick={onMortgage}
+              disabled={!canMortgage}
+              title={mortgaged ? "Pay off mortgage" : "Mortgage property"}
+              aria-label={mortgaged ? "Pay off mortgage" : "Mortgage property"}
+            >
+              <IconTrash />
+            </button>
+          </div>
         )}
 
         {error && <p className="pcard-detail-error">{error}</p>}

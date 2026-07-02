@@ -1,3 +1,5 @@
+import TradeCountdown from "./TradeCountdown";
+
 // Right-panel at-a-glance list of the current player's open trades (both
 // incoming offers awaiting a response and outgoing offers still pending).
 // Clicking a row opens the full Trade modal, which already lists every
@@ -8,11 +10,9 @@ export default function OpenTrades({ state, myId, onOpen }) {
 
   const mine = trades.filter((t) => t.fromId === myId || t.toId === myId);
 
-  function itemCount(t) {
-    return {
-      offer: t.offerProperties.length + (t.offerMoney > 0 ? 1 : 0),
-      request: t.requestProperties.length + (t.requestMoney > 0 ? 1 : 0),
-    };
+  function playerLabel(id) {
+    const p = players.find((pl) => pl.id === id);
+    return `${p?.name ?? "?"}${id === myId ? " (you)" : ""}`;
   }
 
   return (
@@ -25,18 +25,13 @@ export default function OpenTrades({ state, myId, onOpen }) {
           {mine.map((t) => {
             const incoming = t.toId === myId;
             const counterpart = players.find((p) => p.id === (incoming ? t.fromId : t.toId));
-            const { offer, request } = itemCount(t);
             return (
               <button key={t.id} className="open-trade-row" onClick={onOpen}>
                 <span className="open-trade-dot" style={{ background: counterpart?.color }} />
-                <span className="open-trade-info">
-                  <span className="open-trade-name">{counterpart?.name}</span>
-                  <span className="open-trade-summary">
-                    {incoming
-                      ? `Offers you ${offer} item${offer === 1 ? "" : "s"} for ${request}`
-                      : `You offered ${offer} item${offer === 1 ? "" : "s"} for ${request}`}
-                  </span>
+                <span className="open-trade-name">
+                  {playerLabel(t.fromId)} ⇄ {playerLabel(t.toId)}
                 </span>
+                {t.deadline && <TradeCountdown deadline={t.deadline} />}
                 <span className={`open-trade-status${incoming ? " incoming" : ""}`}>
                   {incoming ? "Respond" : "Pending"}
                 </span>

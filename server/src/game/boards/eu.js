@@ -4,15 +4,18 @@
 // theme (board rendering is fully data-driven, no per-map client code).
 import { TILE_TYPES } from "../tile-types.js";
 
+// `basePrice` is the group's cheapest tile -- rentLevels is tuned for that
+// price point, and any pricier tile in the same group scales up from it (see
+// the per-tile rent scaling pass below BOARD).
 const COLOR_GROUPS = {
-  iberian: { color: "#8e44ad", rentLevels: [2, 10, 30, 90, 160, 250],     housePrice: 50 },
-  western: { color: "#2980b9", rentLevels: [6, 30, 90, 270, 400, 550],    housePrice: 50 },
-  central: { color: "#16a085", rentLevels: [8, 40, 100, 300, 450, 600],   housePrice: 100 },
-  eastern: { color: "#d35400", rentLevels: [10, 50, 150, 450, 625, 750],  housePrice: 100 },
-  benelux:  { color: "#f39c12", rentLevels: [12, 60, 180, 500, 700, 900], housePrice: 150 },
-  nordic:  { color: "#27ae60", rentLevels: [14, 70, 200, 550, 750, 950],  housePrice: 150 },
-  alpine:  { color: "#c0392b", rentLevels: [16, 80, 220, 600, 800, 1000], housePrice: 200 },
-  capital: { color: "#2c3e50", rentLevels: [18, 90, 250, 700, 875, 1050], housePrice: 200 },
+  iberian: { color: "#8e44ad", basePrice: 60,  rentLevels: [2, 10, 30, 90, 160, 250],     housePrice: 50 },
+  western: { color: "#2980b9", basePrice: 100, rentLevels: [6, 30, 90, 270, 400, 550],    housePrice: 50 },
+  central: { color: "#16a085", basePrice: 120, rentLevels: [8, 40, 100, 300, 450, 600],   housePrice: 100 },
+  eastern: { color: "#d35400", basePrice: 140, rentLevels: [10, 50, 150, 450, 625, 750],  housePrice: 100 },
+  benelux:  { color: "#f39c12", basePrice: 160, rentLevels: [12, 60, 180, 500, 700, 900], housePrice: 150 },
+  nordic:  { color: "#27ae60", basePrice: 180, rentLevels: [14, 70, 200, 550, 750, 950],  housePrice: 150 },
+  alpine:  { color: "#c0392b", basePrice: 200, rentLevels: [16, 80, 220, 600, 800, 1000], housePrice: 200 },
+  capital: { color: "#2c3e50", basePrice: 220, rentLevels: [18, 90, 250, 700, 875, 1050], housePrice: 200 },
 };
 
 const STATION_RENT = [25, 50, 100, 200]; // by count of the 4 stations owned
@@ -69,6 +72,18 @@ export const BOARD = [
   { id: 30, type: TILE_TYPES.TAX,           name: "ضريبة الجمارك", amount: 120 },
   { id: 31, type: TILE_TYPES.TREASURE,      name: "صندوق الاتحاد" },
 ];
+
+// Rent scales per tile, not just per group -- see classic-vintage.js for the
+// full explanation. Here it only actually changes anything for "capital"
+// (London $220 vs Athens $240); every other group is priced identically
+// across its own tiles, so the scale factor is 1 and nothing moves.
+for (const tile of BOARD) {
+  if (tile.type !== TILE_TYPES.PROPERTY) continue;
+  const { basePrice } = COLOR_GROUPS[tile.group];
+  if (tile.price === basePrice) continue;
+  const scale = tile.price / basePrice;
+  tile.rent = tile.rent.map((r) => Math.round(r * scale));
+}
 
 export const TOTAL_TILES = BOARD.length;
 export const COLOR_GROUP_DEFS = COLOR_GROUPS;

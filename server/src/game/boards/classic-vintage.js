@@ -3,19 +3,22 @@
 // (top-left corner). Paired with the cv2-* "Classic Vintage" client theme.
 import { TILE_TYPES } from "../tile-types.js";
 
+// `basePrice` is the group's cheapest tile -- rentLevels is tuned for that
+// price point, and any pricier tile in the same group scales up from it (see
+// the per-tile rent scaling pass below BOARD).
 const COLOR_GROUPS = {
-  pink:          { color: "#ff5fa2", rentLevels: [2, 10, 30, 90, 160, 250],     housePrice: 50 },
-  blueTop:       { color: "#2980b9", rentLevels: [6, 30, 90, 270, 400, 550],    housePrice: 50 },
-  olive:         { color: "#6b6b1f", rentLevels: [10, 50, 150, 450, 625, 750],  housePrice: 100 },
-  salmonRight:   { color: "#e57373", rentLevels: [14, 70, 200, 550, 750, 950],  housePrice: 100 },
-  goldenrod:     { color: "#b8860b", rentLevels: [18, 90, 250, 700, 875, 1050], housePrice: 150 },
-  greenBottom:   { color: "#2ecc71", rentLevels: [22, 110, 330, 800, 975, 1150], housePrice: 150 },
-  violetBottom:  { color: "#9b59b6", rentLevels: [26, 130, 390, 900, 1100, 1275], housePrice: 200 },
-  salmonLeft:    { color: "#ef9a9a", rentLevels: [28, 150, 450, 1000, 1200, 1400], housePrice: 200 },
-  tealLeft:      { color: "#16a596", rentLevels: [35, 175, 500, 1100, 1400, 1700], housePrice: 250 },
+  pink:          { color: "#ff5fa2", basePrice: 60,  rentLevels: [2, 10, 30, 90, 160, 250],     housePrice: 50 },
+  blueTop:       { color: "#2980b9", basePrice: 100, rentLevels: [6, 30, 90, 270, 400, 550],    housePrice: 50 },
+  olive:         { color: "#6b6b1f", basePrice: 140, rentLevels: [10, 50, 150, 450, 625, 750],  housePrice: 100 },
+  salmonRight:   { color: "#e57373", basePrice: 180, rentLevels: [14, 70, 200, 550, 750, 950],  housePrice: 100 },
+  goldenrod:     { color: "#b8860b", basePrice: 220, rentLevels: [18, 90, 250, 700, 875, 1050], housePrice: 150 },
+  greenBottom:   { color: "#2ecc71", basePrice: 260, rentLevels: [22, 110, 330, 800, 975, 1150], housePrice: 150 },
+  violetBottom:  { color: "#9b59b6", basePrice: 300, rentLevels: [26, 130, 390, 900, 1100, 1275], housePrice: 200 },
+  salmonLeft:    { color: "#ef9a9a", basePrice: 340, rentLevels: [28, 150, 450, 1000, 1200, 1400], housePrice: 200 },
+  tealLeft:      { color: "#16a596", basePrice: 380, rentLevels: [35, 175, 500, 1100, 1400, 1700], housePrice: 250 },
 };
 
-const STATION_RENT = [25, 50, 75, 100, 150, 200]; // by count of the 6 stations owned
+const STATION_RENT = [25, 50, 150, 200, 250, 300]; // by count of the 6 stations owned
 
 function G(group) {
   return {
@@ -60,11 +63,11 @@ export const BOARD = [
   { id: 22, type: TILE_TYPES.TAX,           name: "ضريبة",           amount: 150 },
   { id: 23, type: TILE_TYPES.PROPERTY,      name: "بيرلين",          price: 240, ...G("goldenrod") },
   { id: 24, type: TILE_TYPES.REST,          name: "استراحة محارب" },
-  { id: 25, type: TILE_TYPES.PROPERTY,      name: "نيتانيا",         price: 260, ...G("greenBottom") },
+  { id: 25, type: TILE_TYPES.PROPERTY,      name: "شينزين",          price: 260, ...G("greenBottom") },
   { id: 26, type: TILE_TYPES.SURPRISE,      name: "الحظ" },
-  { id: 27, type: TILE_TYPES.PROPERTY,      name: "حيفا",            price: 260, ...G("greenBottom") },
+  { id: 27, type: TILE_TYPES.PROPERTY,      name: "بكين",            price: 260, ...G("greenBottom") },
   { id: 28, type: TILE_TYPES.TREASURE,      name: "جمعية الديوان" },
-  { id: 29, type: TILE_TYPES.PROPERTY,      name: "تل ابيب",         price: 280, ...G("greenBottom") },
+  { id: 29, type: TILE_TYPES.PROPERTY,      name: "شنغهاي",          price: 280, ...G("greenBottom") },
   { id: 30, type: TILE_TYPES.TRANSIT,       name: "محطة كوستر",      price: 150, rent: STATION_RENT },
   { id: 31, type: TILE_TYPES.PROPERTY,      name: "سيناء",           price: 300, ...G("violetBottom") },
   { id: 32, type: TILE_TYPES.PROPERTY,      name: "قاهرة",           price: 300, ...G("violetBottom") },
@@ -84,6 +87,19 @@ export const BOARD = [
   { id: 46, type: TILE_TYPES.REST,          name: "عليكم الأمان" },
   { id: 47, type: TILE_TYPES.PROPERTY,      name: "اربد",            price: 420, ...G("tealLeft") },
 ];
+
+// Rent scales per tile, not just per group: every tile in a group starts out
+// sharing that group's rentLevels (tuned for its basePrice), but a tile
+// priced above its group's cheapest one gets its own rent table scaled up
+// proportionally -- e.g. in "olive", موسكو ($160) charges more at every house
+// tier than داقستان ($140), instead of the two charging identically.
+for (const tile of BOARD) {
+  if (tile.type !== TILE_TYPES.PROPERTY) continue;
+  const { basePrice } = COLOR_GROUPS[tile.group];
+  if (tile.price === basePrice) continue;
+  const scale = tile.price / basePrice;
+  tile.rent = tile.rent.map((r) => Math.round(r * scale));
+}
 
 export const TOTAL_TILES = BOARD.length;
 export const COLOR_GROUP_DEFS = COLOR_GROUPS;

@@ -47,6 +47,18 @@
   gap: 6px;
 }
 
+/* ---------- Transit (station) card variant ---------- */
+.pcard-detail-band--transit {
+  background: #1684b7;
+}
+
+.pcard-detail-transit-icon {
+  width: 44px;
+  height: auto;
+  margin: 0 auto 4px;
+  display: block;
+}
+
 .pcard-detail-name {
   margin: 0 0 2px;
   font-size: 15px;
@@ -133,6 +145,14 @@
   line-height: 1.4;
 }
 
+/* Dollar figures get their own hook everywhere they appear (rent tiers,
+   mortgage value, house/hotel cost) so a context that wants extra emphasis
+   -- see .my-properties-card below -- can target just the numbers. */
+.pcard-detail-value {
+  font-weight: 700;
+  font-style: normal;
+}
+
 .pcard-detail--mortgaged .pcard-detail-rent-base,
 .pcard-detail--mortgaged .pcard-detail-rent-list,
 .pcard-detail--mortgaged .pcard-detail-hotel-row {
@@ -181,17 +201,26 @@
 }
 
 /* ---------- Action buttons ---------- */
+/* Build/sell (house tiers) sit as a pair on the left; mortgage sits alone on
+   the right -- margin-left: auto on the danger button pushes it there
+   whether or not a left-side pair exists (TransitCardDetail has no build/sell,
+   just the lone mortgage button, and still lands on the right this way). */
 .pcard-detail-actions {
   display: flex;
-  justify-content: center;
+  align-items: center;
   gap: 10px;
   padding-top: 6px;
+}
+
+.pcard-detail-actions-left {
+  display: flex;
+  gap: 10px;
 }
 
 .pcard-detail-action-btn {
   width: 34px;
   height: 34px;
-  border-radius: 50%;
+  border-radius: 9px;
   border: 2px solid #111;
   background: #e6d6a8;
   color: #2a1c0d;
@@ -220,6 +249,7 @@
 
 .pcard-detail-action-btn--danger {
   background: #f0c8c8;
+  margin-left: auto;
 }
 
 .pcard-detail-action-btn--danger:hover:not(:disabled) {

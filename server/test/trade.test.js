@@ -108,3 +108,78 @@ test("kicking a player clears any trade they're party to", () => {
 
   assert.equal(room.trades.length, 0);
 });
+
+test("a time-limited trade carries a deadline and auto-expires once it passes", async () => {
+  const room = makeRoom();
+  after(() => cleanup(room));
+
+  const propose = room.proposeTrade("p0", { toId: "p1", requestMoney: 10, timeLimitSec: 10 });
+  assert.equal(propose.ok, true);
+  const trade = room.trades[0];
+  assert.ok(trade.deadline > Date.now(), "deadline is set in the future");
+
+  // Fast-forward past the deadline directly rather than actually waiting --
+  // scheduleTradeTimer clamps a past deadline's delay to 0, so re-arming it
+  // now fires on the next tick same as if real time had passed.
+  trade.deadline = Date.now() - 1;
+  room.scheduleTradeTimer(trade.id);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(room.trades.length, 0, "the expired trade is gone");
+  assert.match(room.log[0], /expired/);
+});
+
+test("a trade with no time limit never gets a deadline", () => {
+  const room = makeRoom();
+  after(() => cleanup(room));
+
+  const propose = room.proposeTrade("p0", { toId: "p1", requestMoney: 10 });
+
+  assert.equal(room.trades.find((t) => t.id === propose.tradeId).deadline, null);
+});
+
+test("an out-of-range time limit is rejected", () => {
+  const room = makeRoom();
+  after(() => cleanup(room));
+
+  const tooShort = room.proposeTrade("p0", { toId: "p1", requestMoney: 10, timeLimitSec: 1 });
+  const tooLong = room.proposeTrade("p0", { toId: "p1", requestMoney: 10, timeLimitSec: 99999 });
+
+  assert.equal(tooShort.error, "Invalid time limit");
+  assert.equal(tooLong.error, "Invalid time limit");
+});
+
+test("accepting a time-limited trade before it expires cancels the pending timer", () => {
+  const room = makeRoom();
+  after(() => cleanup(room));
+  room.players[1].balance = 500;
+
+  const propose = room.proposeTrade("p0", { toId: "p1", requestMoney: 10, timeLimitSec: 30 });
+  const accept = room.respondTrade("p1", propose.tradeId, true);
+
+  assert.equal(accept.ok, true);
+  assert.equal(room.trades.length, 0);
+});
+
+// Trade timers live entirely on each trade object (trade.timer/trade.deadline) --
+// this asserts they never touch the room's own turn timer (this.turnTimer/
+// this.turnDeadline), which is the 4-minute-per-turn clock that kicks an
+// idle current player. A trade expiring should never shorten, restart, or
+// clear that clock.
+test("a time-limited trade expiring does not touch the turn timer", async () => {
+  const room = makeRoom();
+  after(() => cleanup(room));
+  const turnDeadlineBefore = room.turnDeadline;
+  const turnTimerBefore = room.turnTimer;
+
+  const propose = room.proposeTrade("p0", { toId: "p1", requestMoney: 10, timeLimitSec: 10 });
+  const trade = room.trades.find((t) => t.id === propose.tradeId);
+  trade.deadline = Date.now() - 1;
+  room.scheduleTradeTimer(trade.id);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(room.trades.length, 0, "the trade did expire");
+  assert.equal(room.turnDeadline, turnDeadlineBefore, "turn deadline is untouched");
+  assert.equal(room.turnTimer, turnTimerBefore, "turn timer handle is untouched");
+  assert.equal(room.turnIndex, 0, "turn did not advance");
+});
