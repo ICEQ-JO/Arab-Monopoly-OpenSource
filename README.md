@@ -1,23 +1,66 @@
-# Monoboly عرب (Arab Monopoly)
+# 🎲 Monoboly عرب (Arab Monopoly)
 
-A real-time multiplayer property-trading board game (original theme, inspired by the genre of games like RichUp/Monopoly — no assets or text copied from any existing game).
+Real-time multiplayer property trading, dice-rolling, rent-collecting,
+friendship-ending chaos — in your browser, with your friends, for free.
+
+Inspired by the genre of games like Monopoly/RichUp (original theme, no
+assets or text copied from any existing game — we drew our own maps and
+wrote our own flavor text, we're not trying to get a strongly-worded
+letter from a toy company's legal department).
+
+Buy Kuwait City. Bankrupt your cousin. Land on a Surprise card that sends
+you straight to the Holding Pen for absolutely no reason. Refuse to trade
+that one property everyone needs even though you're never going to use
+it. You know the drill.
 
 **Status: actively developed, feature-complete core loop.** Trading,
 auctions, mortgaging, building, the Holding Pen, and Surprise/Treasure
-cards have all been through multiple real playtests, not just isolated
-testing. Bugs found along the way are fixed; see [progress.md](progress.md)
+cards have all survived multiple real playtests with actual humans yelling
+at each other, not just isolated unit tests. See [progress.md](progress.md)
 for the full pass-by-pass history and [systemDesign.md](systemDesign.md)
-for the current architecture, wire protocol, and known gaps.
+for the architecture, wire protocol, and known gaps.
+
+## What you actually get
+
+- 🗺️ **Four boards**, pick one when you create a room:
+  - **Classic** (48 tiles) — the original Arab-themed board
+  - **Worldwide** (48 tiles) — a round-the-globe trip, Rio to Dubai
+  - **Middle East** (32 tiles) — Gulf to Maghreb
+  - **Europe** (32 tiles) — European capitals
+  - All four are rendered by the exact same board component off pure data,
+    so nobody had to hand-draw four different UIs
+- 🎲 Full turn flow — roll, move, auto-resolve whatever you land on (buy
+  prompt, rent, tax, cards), doubles earn a bonus roll, three doubles in a
+  row lands you in the Holding Pen (you brought this on yourself)
+- 🃏 "Surprise" and "Treasure" decks (14 cards each) with an actual
+  card-reveal popup the whole room sees — no more squinting at a log line
+  to find out you just paid a parking fine
+- ⛓️ The Holding Pen: escape via doubles, a forced-pay cap after 3 turns,
+  voluntary pay-to-leave, or a kept "Get Out Free" card if you're holding one
+- 🏠 Houses and hotels, rent scaling, monopoly doubling, mortgaging (with
+  interest) when you're short on cash
+- 🔨 Auctions when someone declines to buy, with a soft-close timer so
+  bidding wars can't camp open forever
+- 🤝 Player-to-player trading, counter-offers included
+- 💸 Bankruptcy is only checked at the end of *your own* turn, so a bad
+  roll gives you a real shot at mortgaging/selling/trading your way back
+  before it's game over
+- 🔌 Disconnect grace window + persistent rooms that survive a server
+  restart, so one flaky wifi connection doesn't end the game for everyone
 
 ## Stack
-- `server/` — Node.js + Express + Socket.io, holds all game state/logic (`server/src/game/Room.js`, `board.js`, `cards.js`)
-- `client/` — React + Vite, connects via `socket.io-client`
 
-## Running locally
+- `server/` — Node.js + Express + Socket.io. All game state and rules
+  logic lives here (`server/src/game/Room.js`, `board.js`, `cards.js`) —
+  the client never decides anything, it just renders what the server says
+  happened.
+- `client/` — React + Vite, talks to the server over `socket.io-client`.
+
+## Running it locally
 
 **Playtesting (single URL, recommended):** the server can serve the
-client's production build directly, so the whole game is reachable on one
-port with no separate dev server or CORS setup.
+client's production build directly, so the whole game lives on one port —
+no separate dev server, no CORS headaches.
 
 ```bash
 cd client
@@ -34,9 +77,9 @@ genuinely different browsers, not two windows of the same one — see
 "Local testing gotcha" below), create a room in one, and join with the room
 code from the others. If you change any client file, re-run `npm run build`
 in `client/` before restarting the server, or it'll keep serving the old
-bundle.
+bundle and you'll wonder why your fix "isn't working."
 
-**Active development (hot reload):** in two terminals instead —
+**Active development (hot reload):** two terminals instead —
 
 ```bash
 cd server
@@ -57,36 +100,28 @@ Open `http://localhost:5173` for this mode instead of port 4000.
 Two windows of the *same* browser (including two incognito windows from
 the same incognito session) share one `localStorage` partition. The app
 saves your session there to support reconnecting after a refresh, so a
-second window will silently rejoin as the *same* player instead of letting
-you join fresh as a second one. Use two different browsers (e.g. Chrome +
-Firefox) to test multiple players on one machine.
+second window will silently rejoin as the *same* player instead of
+letting you join fresh as a second one — and then you'll spend ten
+minutes wondering why "player 2" keeps stealing player 1's money. Use two
+different browsers (e.g. Chrome + Firefox) to test multiple players on
+one machine.
 
-## Game features implemented
-- Room create/join via 6-character codes, up to 6 players; host
-  reassignment if the host leaves
-- Four selectable boards, picked at room creation: Classic (48 tiles, the
-  original Arab-themed board), Worldwide (48 tiles, cities across every
-  continent), Middle East (32 tiles, Gulf-to-Maghreb), and Europe (32
-  tiles, European capitals) — all data-driven off the same board renderer
-- Persistent rooms — survive a server restart (`server/data/rooms.json`)
-- Disconnect grace window (20s to reconnect before losing your seat) and a
-  hard 4-minute per-turn timer, both server-enforced
-- Turn flow: roll dice, move, auto-resolve tile (buy prompt, rent, tax,
-  cards); doubles grant a bonus roll, three doubles in a row sends you to
-  the Holding Pen
-- "Surprise" and "Treasure" card decks (14 cards each) with a card-reveal
-  UI shown to the whole room; movement cards pause for an explicit
-  confirmation before actually moving you, and a drawn "Get Out of Holding
-  Free" card is visibly kept until used
-- Holding Pen (jail-equivalent): doubles-to-escape, a 3-turn cap with a
-  forced-pay escape, voluntary pay-to-leave, and Get Out of Jail Free cards
-- Buying houses/hotels once a full color group is owned (and selling them
-  back down), rent scaling, monopoly doubling
-- Mortgaging and unmortgaging properties (with interest) for cash on hand
-- Auctions when a player declines to buy, with a soft-close timer so
-  bidding can't hang open forever
-- Player-to-player trading, including counter-offers
-- Bankruptcy is deferred to the end of the player's own turn rather than
-  triggered the instant a balance goes negative — giving them a real
-  chance to mortgage, sell, or trade their way back to solvent first
-- Live state sync to all clients in a room over Socket.io
+## Who built this
+
+- **Khalid Khudari**
+- **Mohamad Muhaisen**
+- **Ameen Alrawabdeh**
+
+Three people, one repo, zero funding, and a lot of arguing about whether
+the hotel icon was centered.
+
+## Contributing
+
+New work should branch off the tip of `main`. Run `npm test` in `server/`
+before opening a PR — there's a real regression suite in there, use it.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Clone it, fork it, host it for your own
+friend group, whatever. Just don't try to sue us if your friendship
+doesn't survive a rent payment.
