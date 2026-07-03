@@ -958,15 +958,6 @@ export default function BoardClassic({ state, myId, tokenMoving, onTokenMovingCh
               }
               return null;
             })()}
-            {/* Dev-only: teleports every active player onto one random tile
-                to check the same-tile token-stacking UI without playing a
-                real game up to the point where players naturally collide. */}
-            <button
-              className="cv2-debug-stack-btn"
-              onClick={() => socket.emit("debugStackOnRandomTile")}
-            >
-              Test: stack all players on a random tile
-            </button>
             {/* Also re-checks isMyTurn -- the per-turn timer can end this
                 turn out from under the player (see Room.startTurnTimer)
                 while this is still open; without this it'd linger open for

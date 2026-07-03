@@ -1096,7 +1096,48 @@ export class Room {
     this.pushLog(`${fromPlayer.name} and ${toPlayer.name} completed a trade.`);
     // No bankruptcy check here -- the funds check just above already guarantees
     // neither side goes negative from this trade itself.
+    this.pruneStaleTrades();
     return { ok: true };
+  }
+
+  // Whether a trade's offer/request still holds up against current game state --
+  // ownership, development/mortgage status, held jail card, and affordable coins
+  // can all have changed since the trade was proposed. Used by pruneStaleTrades
+  // to proactively drop other open trades a just-completed one invalidated;
+  // respondTrade's own accept path re-checks this same ground itself field by
+  // field instead of calling this, so it can report which side broke specifically.
+  tradeIsValid(trade) {
+    const fromPlayer = this.playerById(trade.fromId);
+    const toPlayer = this.playerById(trade.toId);
+    if (!fromPlayer || fromPlayer.bankrupt || fromPlayer.left) return false;
+    if (!toPlayer || toPlayer.bankrupt || toPlayer.left) return false;
+    if (!trade.offerProperties.every((id) => this.isTradeable(id, trade.fromId))) return false;
+    if (!trade.requestProperties.every((id) => this.isTradeable(id, trade.toId))) return false;
+    if (trade.offerJailCard && !fromPlayer.holdingFreeCard) return false;
+    if (trade.requestJailCard && !toPlayer.holdingFreeCard) return false;
+    if (trade.offerMoney > 0 && fromPlayer.balance < trade.offerMoney) return false;
+    if (trade.requestMoney > 0 && toPlayer.balance < trade.requestMoney) return false;
+    return true;
+  }
+
+  // A completed trade can silently strand *other* open trades -- e.g. player A
+  // has pending offers to both B and C involving the same property, or offering
+  // the same Get Out of Jail Free card, or more coins than they'll have left;
+  // once the trade with B goes through, the one with C references a property/
+  // card/coin amount A can no longer deliver. Without this, that stale trade
+  // just sits in the list until C tries (and fails) to accept it -- this closes
+  // it immediately instead, the same way clearTradesInvolving does for a
+  // player leaving/going bankrupt, just scoped to individual resources rather
+  // than an entire player.
+  pruneStaleTrades() {
+    const stale = this.trades.filter((t) => !this.tradeIsValid(t));
+    if (stale.length === 0) return;
+    for (const trade of stale) {
+      this.clearTradeTimer(trade);
+      this.pushLog(`${this.playerById(trade.fromId)?.name ?? "A player"}'s trade offer to ${this.playerById(trade.toId)?.name ?? "a player"} is no longer valid and was cancelled.`);
+    }
+    const staleIds = new Set(stale.map((t) => t.id));
+    this.trades = this.trades.filter((t) => !staleIds.has(t.id));
   }
 
   cancelTrade(playerId, tradeId) {

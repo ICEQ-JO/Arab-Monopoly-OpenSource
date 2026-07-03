@@ -43,6 +43,43 @@ function perspectiveOf(trade, myId) {
   };
 }
 
+// Buckets a tradeable-tiles list into color-group sections, in first-
+// occurrence board order (Map preserves insertion order, so no hardcoded
+// group-order list is needed) -- lets the two-column picker read as "your
+// holdings, organized like the board" instead of a flat wall of chips.
+// Transit/utility tiles have no `group` field of their own, so they fall
+// back to bucketing by tile type instead.
+function groupTiles(tiles) {
+  const groups = new Map();
+  for (const tile of tiles) {
+    const key = tile.group || tile.type;
+    if (!groups.has(key)) groups.set(key, { color: chipColor(tile), tiles: [] });
+    groups.get(key).tiles.push(tile);
+  }
+  return [...groups.values()];
+}
+
+// Shared grouped/2-up-grid layout for both the editable picker (PropChip)
+// and the read-only view (StaticPropChip) -- renderChip is a render-prop so
+// this stays agnostic to which chip variant it's laying out, keeping the
+// grouping logic itself in exactly one place for both screens.
+function GroupedChips({ tiles, renderChip }) {
+  if (tiles.length === 0) return null;
+  return (
+    <div className="trade-chip-groups">
+      {groupTiles(tiles).map((g, i) => (
+        <div className="trade-chip-group" key={i}>
+          <div className="trade-chip-group-header">
+            <span className="trade-chip-group-swatch" style={{ background: g.color }} />
+            <span className="trade-chip-group-count">{g.tiles.length}</span>
+          </div>
+          <div className="trade-chip-group-grid">{g.tiles.map(renderChip)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PropChip({ tile, selected, onToggle }) {
   return (
     <div
@@ -182,14 +219,12 @@ function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitL
       <div className="trade-cols-2">
         <div className="trade-col-side">
           <div className="trade-col-label">You give</div>
-          {myTiles.length === 0 && !me?.holdingFreeCard && (
-            <p className="hint" style={{ margin: 0, fontSize: 12 }}>No tradeable properties</p>
-          )}
-          {myTiles.map((t) => (
-            <PropChip key={t.id} tile={t} selected={offerIds.includes(t.id)} onToggle={(id) => toggle(offerIds, setOfferIds, id)} />
-          ))}
-          {me?.holdingFreeCard && (
-            <JailCardChip selected={offerJailCard} onToggle={() => setOfferJailCard((v) => !v)} />
+          {(offerIds.length > 0 || offerMoney > 0 || offerJailCard) && (
+            <div className="trade-col-summary">
+              {offerIds.length > 0 && `${offerIds.length} propert${offerIds.length === 1 ? "y" : "ies"}`}
+              {offerMoney > 0 && ` · $${offerMoney}`}
+              {offerJailCard && ` · Wasta card`}
+            </div>
           )}
           <div className="trade-money-row">
             <div className="trade-money-label">
@@ -202,20 +237,30 @@ function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitL
               <span>${maxOffer}</span>
             </div>
           </div>
+          {myTiles.length === 0 && !me?.holdingFreeCard && (
+            <p className="hint" style={{ margin: 0, fontSize: 12 }}>No tradeable properties</p>
+          )}
+          <GroupedChips
+            tiles={myTiles}
+            renderChip={(t) => (
+              <PropChip key={t.id} tile={t} selected={offerIds.includes(t.id)} onToggle={(id) => toggle(offerIds, setOfferIds, id)} />
+            )}
+          />
+          {me?.holdingFreeCard && (
+            <JailCardChip selected={offerJailCard} onToggle={() => setOfferJailCard((v) => !v)} />
+          )}
         </div>
 
         <div className="trade-col-divider" />
 
         <div className="trade-col-side">
           <div className="trade-col-label">You get</div>
-          {theirTiles.length === 0 && !them?.holdingFreeCard && (
-            <p className="hint" style={{ margin: 0, fontSize: 12 }}>No tradeable properties</p>
-          )}
-          {theirTiles.map((t) => (
-            <PropChip key={t.id} tile={t} selected={requestIds.includes(t.id)} onToggle={(id) => toggle(requestIds, setRequestIds, id)} />
-          ))}
-          {them?.holdingFreeCard && (
-            <JailCardChip selected={requestJailCard} onToggle={() => setRequestJailCard((v) => !v)} />
+          {(requestIds.length > 0 || requestMoney > 0 || requestJailCard) && (
+            <div className="trade-col-summary">
+              {requestIds.length > 0 && `${requestIds.length} propert${requestIds.length === 1 ? "y" : "ies"}`}
+              {requestMoney > 0 && ` · $${requestMoney}`}
+              {requestJailCard && ` · Wasta card`}
+            </div>
           )}
           <div className="trade-money-row">
             <div className="trade-money-label">
@@ -228,6 +273,18 @@ function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitL
               <span>${maxRequest}</span>
             </div>
           </div>
+          {theirTiles.length === 0 && !them?.holdingFreeCard && (
+            <p className="hint" style={{ margin: 0, fontSize: 12 }}>No tradeable properties</p>
+          )}
+          <GroupedChips
+            tiles={theirTiles}
+            renderChip={(t) => (
+              <PropChip key={t.id} tile={t} selected={requestIds.includes(t.id)} onToggle={(id) => toggle(requestIds, setRequestIds, id)} />
+            )}
+          />
+          {them?.holdingFreeCard && (
+            <JailCardChip selected={requestJailCard} onToggle={() => setRequestJailCard((v) => !v)} />
+          )}
         </div>
       </div>
 
@@ -263,7 +320,7 @@ function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitL
 // Accept/Decline/Counter; the proposer (viewing their own pending offer)
 // just gets Cancel. Counter hands off to TradeModal to swap this view for
 // an editable TradeForm instead of toggling any state in here.
-function TradeView({ trade, board, players, myId, onBack, onCounter }) {
+function TradeView({ trade, board, players, myId, onBack, onCounter, onClose }) {
   const [error, setError] = useState("");
   const { mine, otherId, giveProperties, giveMoney, giveJailCard, getProperties, getMoney, getJailCard } = perspectiveOf(trade, myId);
   const me = players.find((p) => p.id === myId);
@@ -275,14 +332,15 @@ function TradeView({ trade, board, players, myId, onBack, onCounter }) {
     setError("");
     socket.emit("respondTrade", { tradeId: trade.id, accept }, (res) => {
       if (res?.error) return setError(res.error);
-      if (accept) onBack();
+      onClose();
     });
   }
 
   function cancelOffer() {
     setError("");
     socket.emit("cancelTrade", { tradeId: trade.id }, (res) => {
-      if (res?.error) setError(res.error);
+      if (res?.error) return setError(res.error);
+      onClose();
     });
   }
 
@@ -314,24 +372,24 @@ function TradeView({ trade, board, players, myId, onBack, onCounter }) {
       <div className="trade-cols-2">
         <div className="trade-col-side">
           <div className="trade-col-label">You give</div>
+          {giveMoney > 0 && <StaticMoneyRow amount={giveMoney} />}
           {giveTiles.length === 0 && giveMoney === 0 && !giveJailCard && (
             <p className="hint" style={{ margin: 0, fontSize: 12 }}>Nothing</p>
           )}
-          {giveTiles.map((t) => <StaticPropChip key={t.id} tile={t} />)}
+          <GroupedChips tiles={giveTiles} renderChip={(t) => <StaticPropChip key={t.id} tile={t} />} />
           {giveJailCard && <StaticJailCardChip />}
-          {giveMoney > 0 && <StaticMoneyRow amount={giveMoney} />}
         </div>
 
         <div className="trade-col-divider" />
 
         <div className="trade-col-side">
           <div className="trade-col-label">You get</div>
+          {getMoney > 0 && <StaticMoneyRow amount={getMoney} />}
           {getTiles.length === 0 && getMoney === 0 && !getJailCard && (
             <p className="hint" style={{ margin: 0, fontSize: 12 }}>Nothing</p>
           )}
-          {getTiles.map((t) => <StaticPropChip key={t.id} tile={t} />)}
+          <GroupedChips tiles={getTiles} renderChip={(t) => <StaticPropChip key={t.id} tile={t} />} />
           {getJailCard && <StaticJailCardChip />}
-          {getMoney > 0 && <StaticMoneyRow amount={getMoney} />}
         </div>
       </div>
 
@@ -339,7 +397,7 @@ function TradeView({ trade, board, players, myId, onBack, onCounter }) {
 
       <div className="trade-modal-footer">
         {mine ? (
-          <button onClick={cancelOffer}>Cancel</button>
+          <button className="primary" onClick={cancelOffer}>Cancel Trade</button>
         ) : (
           <>
             <button onClick={() => respond(false)}>Decline</button>
@@ -483,6 +541,7 @@ export default function TradeModal({ state, myId, onClose, initialScreen }) {
               trade={activeTrade} board={board} players={players} myId={myId}
               onBack={() => setScreen({ type: "menu" })}
               onCounter={() => setScreen({ type: "counter", tradeId: activeTrade.id })}
+              onClose={onClose}
             />
           )}
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { socket } from "../socket";
 
+
 const RULE_DEFS = [
   { key: "vacationPot",      label: "Vacation Cash Pot",        desc: "Taxes & fines go into a pot — landing on Vacation collects it all" },
   { key: "noRentInPrison",   label: "No Rent While in Prison",  desc: "Owners in the Holding Pen cannot collect rent" },
@@ -60,32 +61,8 @@ export default function RulesPanel({ rules, isHost }) {
               onChange={(e) => updateRule("startingCash", Number(e.target.value))}
             />
           </div>
-
-          {import.meta.env.DEV && <DevPanel />}
         </div>
       )}
-    </div>
-  );
-}
-
-// Dev-build only (stripped from production via import.meta.env.DEV) -- lets
-// whoever clicks it instantly own a full color group, for testing
-// building-UI/mortgage-rendering changes without playing through a real
-// game to acquire a set. Grants to the clicking player, not host-gated.
-function DevPanel() {
-  function grant(group) {
-    socket.emit("debugGrantGroup", { group });
-  }
-
-  return (
-    <div className="rule-row rule-row-dev">
-      <div className="rule-label">
-        <span className="rule-name">🛠 DEV: Grant Group</span>
-        <span className="rule-desc">Instantly own a full color group, for testing</span>
-      </div>
-      <button className="rule-dev-btn" onClick={() => grant("blueTop")}>
-        Kuwait Area
-      </button>
     </div>
   );
 }

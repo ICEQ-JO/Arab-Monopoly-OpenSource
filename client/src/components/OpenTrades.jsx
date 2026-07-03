@@ -1,4 +1,5 @@
 import PlayerAvatar from "./PlayerAvatar";
+import TradeCountdown from "./TradeCountdown";
 
 // Right-panel "Trades" box -- groups the create-trade trigger and the
 // at-a-glance list of the current player's open trades (both incoming
@@ -6,7 +7,8 @@ import PlayerAvatar from "./PlayerAvatar";
 // panel. Clicking a row jumps straight to that trade's own detail screen
 // (accept/decline/counter/cancel) in the Trade modal, skipping the modal's
 // own open-trades menu since the row itself already identifies the trade --
-// rows stay minimal (who <-> who), no status/countdown clutter.
+// rows stay minimal (who <-> who), no status badge, just a countdown on the
+// right for trades that actually have a time limit.
 export default function OpenTrades({ state, myId, onOpen, onCreate }) {
   const { players, trades = [] } = state;
   if (!state.started) return null;
@@ -46,6 +48,7 @@ export default function OpenTrades({ state, myId, onOpen, onCreate }) {
                 <span className="open-trade-arrow">⇄</span>
                 <PlayerAvatar player={toP} sizeClass="swatch" />
                 <span className="open-trade-name">{playerLabel(t.toId)}</span>
+                {t.deadline && <TradeCountdown deadline={t.deadline} />}
               </button>
             );
           })}

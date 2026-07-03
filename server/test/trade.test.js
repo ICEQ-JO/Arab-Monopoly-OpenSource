@@ -150,6 +150,63 @@ test("kicking a player clears any trade they're party to", () => {
   assert.equal(room.trades.length, 0);
 });
 
+test("completing a trade auto-cancels another pending trade offering the same property", () => {
+  const room = makeRoom(["Alice", "Bob", "Carol"]);
+  after(() => cleanup(room));
+  const alice = room.players[0];
+  alice.properties = [3];
+  room.ownership[3] = { ownerId: "p0", houses: 0, mortgaged: false };
+
+  const toBob = room.proposeTrade("p0", { toId: "p1", offerProperties: [3], requestMoney: 50 });
+  const toCarol = room.proposeTrade("p0", { toId: "p2", offerProperties: [3], requestMoney: 60 });
+  assert.equal(toBob.ok, true);
+  assert.equal(toCarol.ok, true);
+  assert.equal(room.trades.length, 2);
+
+  const accept = room.respondTrade("p1", toBob.tradeId, true);
+
+  assert.deepEqual(accept, { ok: true });
+  assert.equal(room.trades.length, 0, "the stale offer to Carol on the now-traded-away property was auto-cancelled");
+  assert.match(room.log[0], /no longer valid/);
+});
+
+test("completing a trade auto-cancels another pending trade offering the same Get Out of Jail Free card", () => {
+  const room = makeRoom(["Alice", "Bob", "Carol"]);
+  after(() => cleanup(room));
+  const alice = room.players[0];
+  alice.holdingFreeCard = true;
+
+  const toBob = room.proposeTrade("p0", { toId: "p1", offerJailCard: true, requestMoney: 10 });
+  const toCarol = room.proposeTrade("p0", { toId: "p2", offerJailCard: true, requestMoney: 10 });
+  assert.equal(toBob.ok, true);
+  assert.equal(toCarol.ok, true);
+
+  const accept = room.respondTrade("p1", toBob.tradeId, true);
+
+  assert.deepEqual(accept, { ok: true });
+  assert.equal(room.trades.length, 0, "the stale jail-card offer to Carol was auto-cancelled");
+  assert.equal(room.players[1].holdingFreeCard, true);
+  assert.equal(alice.holdingFreeCard, false);
+});
+
+test("completing a trade auto-cancels another pending trade the proposer can no longer afford", () => {
+  const room = makeRoom(["Alice", "Bob", "Carol"]);
+  after(() => cleanup(room));
+  const alice = room.players[0];
+  alice.balance = 100;
+
+  const toBob = room.proposeTrade("p0", { toId: "p1", offerMoney: 80 });
+  const toCarol = room.proposeTrade("p0", { toId: "p2", offerMoney: 80 });
+  assert.equal(toBob.ok, true);
+  assert.equal(toCarol.ok, true);
+
+  const accept = room.respondTrade("p1", toBob.tradeId, true);
+
+  assert.deepEqual(accept, { ok: true });
+  assert.equal(alice.balance, 20);
+  assert.equal(room.trades.length, 0, "the stale offer to Carol ($80, Alice only has $20 left) was auto-cancelled");
+});
+
 test("a time-limited trade carries a deadline and auto-expires once it passes", async () => {
   const room = makeRoom();
   after(() => cleanup(room));

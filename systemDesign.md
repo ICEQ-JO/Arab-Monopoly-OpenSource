@@ -416,6 +416,20 @@ like it had stopped working after the first attempt with any given player.
   player can recover before their own turn ends, so this needed fixing
   once negative balances became a normal, expected state rather than an
   impossible one.
+- **A completed trade proactively prunes every *other* open trade it just
+  broke**, not only the one that was accepted. `respondTrade`'s accept path
+  finishes with `pruneStaleTrades()`, which re-checks every remaining entry
+  in `trades[]` against `tradeIsValid()` (the same ownership/development/
+  mortgage/jail-card/affordability ground `respondTrade` itself re-checks
+  field-by-field for its own error messages, just collapsed to a boolean)
+  and silently drops anything that no longer holds up — e.g. player A had
+  pending offers to both B and C involving the same property, or the same
+  Get Out of Jail Free card, or more coins than they'll have left once the
+  B trade goes through; once A↔B completes, the stale A↔C offer is
+  cancelled immediately rather than sitting in the list until C tries (and
+  fails) to accept it. Mirrors `clearTradesInvolving` (used when a player
+  leaves/goes bankrupt), just scoped to individual resources instead of an
+  entire player.
 - `cancelTrade(playerId, tradeId)` — only the original proposer (`fromId`)
   can withdraw their own pending offer.
 - `counterTrade(playerId, tradeId, {...})` — only the trade's `toId` can

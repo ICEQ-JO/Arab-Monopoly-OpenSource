@@ -682,22 +682,6 @@
 .rule-cash-input:focus { border-color: var(--accent); }
 .rule-cash-input:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Dev-build-only debug tools (stripped from production, see RulesPanel.jsx) */
-.rule-row-dev { background: rgba(204, 17, 17, 0.06); }
-.rule-dev-btn {
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 2px solid var(--border-light);
-  background: #fffdf5;
-  color: #2a1c0d;
-  font-size: 11px;
-  font-weight: 700;
-  font-family: Georgia, serif;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.rule-dev-btn:hover { border-color: var(--accent); }
-
 /* Dev-build-only floating panel, visible during an actual game (unlike the
    RulesPanel dev tools above, which only live in the pre-game waitroom) --
    see DevTools.jsx. */
@@ -1964,6 +1948,12 @@
   border-color: var(--accent);
   color: var(--accent-ink);
 }
+/* Selection already flips to a solid gold fill above, but that's a subtle
+   difference to spot in a dense 2-up grid -- a checkmark makes "this one's
+   in the offer" unmistakable at a glance without touching the JSX. */
+.trade-prop-chip.selected .trade-prop-chip-name::before {
+  content: "✓ ";
+}
 
 .trade-prop-chip--static {
   cursor: default;
@@ -1989,6 +1979,56 @@
   flex-shrink: 0;
   font-weight: 700;
   opacity: 0.8;
+}
+
+/* Groups a column's tradeable tiles by color (see groupTiles/GroupedChips in
+   TradeModal.jsx) instead of one long undifferentiated stack -- each group
+   gets a tiny swatch+count header, and its chips lay out 2-per-row instead
+   of 1-per-row to roughly halve the wall-of-chips height. */
+.trade-chip-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trade-chip-group-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 3px;
+}
+
+.trade-chip-group-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.trade-chip-group-count {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.trade-chip-group-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+/* Live "what's actually in this offer" readout, right under You Give/You
+   Get -- the grouped grid below is easier to scan, but still requires
+   scanning; this answers "what did I pick" without having to. */
+.trade-col-summary {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 4px;
+  padding: 3px 7px;
+  margin: -2px 0 2px;
+  width: fit-content;
 }
 
 .trade-money-row {
@@ -2401,6 +2441,13 @@ select {
   flex-shrink: 0;
   color: var(--text-dim);
   font-size: 12px;
+}
+
+/* Rows hug left (see .open-trade-name's dropped flex:1) so the countdown
+   needs its own push to the right edge rather than inheriting one. */
+.open-trade-row .trade-countdown {
+  margin-left: auto;
+  font-size: 10px;
 }
 
 /* ── GAME LOG (right sidebar, below Open Trades) ─────────────── */
@@ -2864,13 +2911,11 @@ select {
   display: flex;
   align-items: center;
   gap: 7px;
-  flex: 1;
 }
 
 /* Solid accent/accent-ink pairing (not translucent yellow-on-yellow) so
    these stay readable regardless of the modal's panel background color. */
 .trade-form-balance-badge {
-  margin-left: auto;
   font-size: 14px;
   font-weight: 700;
   font-family: "Arvo", Georgia, serif;

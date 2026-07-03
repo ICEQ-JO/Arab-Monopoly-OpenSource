@@ -9,6 +9,161 @@ in the same pass.
 
 ---
 
+## Pass 36 — 2026-07-04 — Trade modal polish, close-on-resolve, dev-tool cleanup
+
+**Goal:** a handful of follow-ups to the Pass 35 trade-picker remake, plus
+two dev-only leftovers the user wanted gone.
+
+**What was done (trade modal):**
+- `TradeForm`/`TradeView` header: each player's balance badge now sits
+  right next to their name instead of pushed to that chip's own far edge --
+  `.trade-form-player-chip` no longer stretches (`flex: 1` removed) and
+  `.trade-form-balance-badge` no longer self-pushes via `margin-left: auto`;
+  the "← Back" button still pins to the far right on its own inline style.
+- The coins slider now renders above the property grid (was below it,
+  after the jail-card chip) in both the editable and read-only trade
+  screens, for consistency between the two.
+- `TradeView`'s "Cancel"/"Accept"/"Decline" all used to leave the modal
+  sitting on the internal "menu" screen once the trade they were pointed at
+  disappeared from state (that's `TradeModal`'s own `!activeTrade -> menu`
+  fallback firing) -- reported specifically for Cancel, then extended to
+  Accept/Decline once confirmed it was the same underlying pattern. All
+  three now call `onClose()` on success instead. "Cancel" also renamed to
+  "Cancel Trade" and restyled `primary` (the shared red-banner button
+  treatment from Pass 33) instead of a plain default button.
+
+**What was done (dev-tool cleanup):**
+- Removed `BoardClassic.jsx`'s "Test: stack all players on a random tile"
+  button (`.cv2-debug-stack-btn`, also dropped from `classicVintage.css`) --
+  unlike `DevTools.jsx` and `RulesPanel.jsx`'s dev panel (both gated behind
+  `import.meta.env.DEV` and already invisible in production), this one had
+  no gate at all and was shipping to every real player.
+- Removed `RulesPanel.jsx`'s "DEV: Grant Group" panel/button entirely
+  (and its now-unused `.rule-row-dev`/`.rule-dev-btn` CSS) per direct
+  request, even though it *was* properly `import.meta.env.DEV`-gated.
+- Neither cleanup touched the matching server-side handlers
+  (`debugStackOnRandomTile`, `debugGrantGroup` in `Room.js`/`index.js`) --
+  confirmed via `AskUserQuestion` the user wanted the surgical removal
+  (just the leaking board button, not a full dev-tooling purge) for the
+  first one; the second was a direct, explicit ask scoped to the button
+  itself.
+- Along the way, audited all six `RulesPanel` toggles
+  (`vacationPot`/`noRentInPrison`/`evenBuild`/`doubleRentFullSet`/
+  `auction`/`startingCash`) end-to-end against `Room.js` and confirmed
+  every one is genuinely wired and enforced server-side, `updateSettings`
+  is correctly host-only/pre-start-only, and old room snapshots backfill
+  missing rule keys via `{ ...DEFAULT_RULES, ...snapshot.rules }` on
+  restore -- no bugs found, no changes needed.
+
+**State at end of pass:** `vite build` + `oxlint` clean. No server logic
+changes this pass. Not visually verified by the assistant per
+[[feedback-verification-approach]].
+
+---
+
+## Pass 35 — 2026-07-04 — Remake the trade property picker (color-grouped, 2-up grid)
+
+**Goal:** the "Propose Trade" two-column property picker listed every
+tradeable property in flat, one-per-row, raw board order -- fine for a
+handful of properties, but a long undifferentiated wall of chips once a
+player owns 10+, with no color grouping and no easy way to tell what was
+actually selected versus just available. User asked for a full remake, not
+a small tweak.
+
+**What was done:**
+- `TradeModal.jsx`: added `groupTiles()` (buckets a tiles list by
+  `tile.group`, falling back to `tile.type` for transit/utility, in
+  first-occurrence board order via `Map` insertion order -- no hardcoded
+  group-order list needed) and `GroupedChips` (a render-prop component
+  wrapping that grouping + a 2-column CSS grid layout, shared by both the
+  editable `PropChip` picker and the read-only `StaticPropChip` view so
+  they stay visually identical, per the existing "opening a trade reads as
+  the same screen, just locked" intent).
+- Each color group gets a tiny swatch+count header instead of a text name
+  -- checked `PropertyCardDetail.jsx`'s own color band first and confirmed
+  this game has no localized group-name text anywhere already; color alone
+  is the established group-identity convention, so the header didn't
+  invent new copy.
+- `App.css`: `.trade-prop-chip.selected` gets a `::before` checkmark (pure
+  CSS, no JSX change) since the existing gold-fill selection state was
+  real but easy to miss in a denser grid.
+- `TradeForm` (the editable picker only, not the read-only `TradeView`)
+  gained a live one-line summary under each "You give"/"You get" label
+  ("2 properties · $150 · Wasta card"), omitted entirely when nothing's
+  selected on that side -- answers "what's actually in this offer" without
+  scanning the grid, which the grouping alone doesn't solve.
+
+**Why these calls:** confirmed the organizing scheme with the user via
+`AskUserQuestion` before implementing (collapsible accordion sections vs.
+always-expanded denser grid) -- picked the always-expanded 2-column grid
+specifically to avoid adding click-to-expand interaction overhead on top of
+an already busy modal.
+
+**State at end of pass:** `vite build` + `oxlint` clean. No server changes,
+no test suite changes. Not visually verified by the assistant per
+[[feedback-verification-approach]] -- user to check the grouped grid,
+checkmarks, and summary line against what they had in mind.
+
+---
+
+## Pass 34 — 2026-07-04 — Sidebar trade countdown, auto-cancel trades a completed trade invalidates
+
+**Goal:** two asks -- restore the per-trade countdown to the sidebar
+"Trades" rows (dropped in Pass 33's redesign along with the rest of the old
+status clutter, but the deadline itself is genuinely useful info), and a
+gameplay-correctness question: if player A has multiple pending trades that
+reference the same property/card/coins, does completing one of them leave
+the others dangling on a resource A no longer has to give?
+
+**What was done (sidebar countdown):**
+- `OpenTrades.jsx` rows render `<TradeCountdown deadline={t.deadline} />`
+  again for any trade that has a time limit, pushed to the row's right edge
+  via a scoped `.open-trade-row .trade-countdown { margin-left: auto; }`
+  (the row's own `.open-trade-name` lost its `flex: 1` in Pass 33 to
+  left-align the avatar/name pairs, so nothing pushes trailing content
+  right by default anymore -- needed its own rule instead of inheriting one).
+
+**What was done (auto-cancel stale trades):** confirmed this was a real
+gap, not just a hypothetical -- `respondTrade`'s accept path already
+re-validated ownership/development/mortgage/jail-card/funds *for the trade
+being accepted*, but nothing ever re-checked *other* open trades once a
+completed one changed the ground under them. A stale trade just sat in
+`trades[]`, indistinguishable from a valid one, until its recipient tried
+to accept it and got a generic rejection.
+- `Room.js`: added `tradeIsValid(trade)` (a boolean version of
+  `respondTrade`'s own field-by-field re-validation, factored out rather
+  than reused *by* `respondTrade` itself so that method can keep returning
+  which specific side broke) and `pruneStaleTrades()`, which filters every
+  entry in `trades[]` through it and drops whatever fails, logging one line
+  per cancellation. `respondTrade`'s accept branch calls `pruneStaleTrades()`
+  as its last step, right after the transfers that could have invalidated
+  something else apply.
+- Added 3 tests to `trade.test.js`: completing a trade auto-cancels another
+  pending trade offering (a) the same property, (b) the same Get Out of
+  Jail Free card, (c) more coins than the proposer has left.
+
+**Why these calls:** deliberately did *not* reuse `tradeIsValid()` inside
+`respondTrade`'s own accept check — that path needs to tell the *acceptor*
+specifically which side of the trade broke ("The offer is no longer valid"
+vs. "The request is no longer valid" vs. "...can no longer afford this
+trade", all asserted by name in existing tests), while the pruning pass
+just needs a yes/no to silently drop a trade nobody's actively looking at
+right now. Collapsing them into one path would have meant either losing
+that specific messaging or complicating the boolean helper for no benefit
+to its only other caller. Scoped the auto-cancel trigger to trade
+completion only (not house-building or mortgaging, which can also make a
+pending trade stale via `isTradeable`) since that's the exact scenario
+described and already covered by `respondTrade`'s own at-accept-time error
+— extending it further wasn't asked for and would be a broader behavior
+change than requested.
+
+**State at end of pass:** client `vite build` + `oxlint` clean; server
+`npm test` 59/59 (3 new). Not visually verified by the assistant per
+[[feedback-verification-approach]] — user to confirm the countdown
+placement and try the multi-trade-on-one-property scenario firsthand.
+
+---
+
 ## Pass 33 — 2026-07-04 — Trades panel redesign, banner-style primary buttons, Start-tile double bonus, balance-change flash
 
 **Goal:** a grab-bag "polish" session covering the right-sidebar trades UI,
