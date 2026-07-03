@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import { TILE_TYPES, MAPS } from "./board.js";
+import { TILE_TYPES, BOARD, TOTAL_TILES, propertiesByGroup } from "./board.js";
 import { SURPRISE_CARDS, TREASURE_CARDS, shuffledDeck } from "./cards.js";
 import { ICON_IDS, ICON_COLORS } from "./icons.js";
 
@@ -30,7 +30,6 @@ const DEFAULT_RULES = {
   doubleRentFullSet: true,
   auction:           true,
   startingCash:      1500,
-  map:               "classic",
 };
 
 export class Room {
@@ -38,7 +37,10 @@ export class Room {
     this.code = code;
     this.hostId = hostId;
     this.rules = { ...DEFAULT_RULES };
-    this.resolveBoard(this.rules.map);
+    this._board = BOARD;
+    this._totalTiles = TOTAL_TILES;
+    this._propertiesByGroup = propertiesByGroup;
+    this._holdingTileId = BOARD.find((t) => t.type === TILE_TYPES.HOLDING)?.id;
     this.vacationPot = 0;
     this.players = [];
     this.ownership = {};
@@ -78,17 +80,6 @@ export class Room {
     this.jailFromTileId = null;
   }
 
-  // Sets which map's tile data this room plays on. Safe to call any time
-  // pre-game (player.position is always 0 before start()); updateSettings()
-  // already blocks changes once the game has started.
-  resolveBoard(mapKey) {
-    const map = MAPS[mapKey] ?? MAPS.classic;
-    this._board = map.BOARD;
-    this._totalTiles = map.TOTAL_TILES;
-    this._propertiesByGroup = map.propertiesByGroup;
-    this._holdingTileId = map.BOARD.find((t) => t.type === TILE_TYPES.HOLDING)?.id;
-  }
-
   updateSettings(hostId, { rules } = {}) {
     if (this.hostId !== hostId) return { error: "Only the host can change settings" };
     if (this.started) return { error: "Game already started" };
@@ -96,7 +87,6 @@ export class Room {
       for (const [k, v] of Object.entries(rules)) {
         if (k in DEFAULT_RULES) this.rules[k] = v;
       }
-      if ("map" in rules) this.resolveBoard(this.rules.map);
     }
     return { ok: true };
   }

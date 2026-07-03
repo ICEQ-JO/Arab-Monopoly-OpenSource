@@ -726,10 +726,10 @@
 /* ---------- Board center ---------- */
 /* Three even thirds: title on top, dice in the middle, actions on the
    bottom -- each zone centers its own content within its band. Row/column
-   span is set inline by BoardClassic.jsx (`2 / N`), not fixed here -- it
-   has to track the board's actual track count, which varies by map (13 for
-   the 48-tile boards, 9 for the 32-tile ones); a fixed "2 / 13" span reached
-   past a smaller grid into implicit auto tracks and threw the box off-center. */
+   span is set inline by BoardClassic.jsx (`2 / N`, N = 13 for this board's
+   48 tiles), not fixed here -- computed generically from the board's own
+   track count rather than hardcoded, so it can't silently drift out of
+   sync with BOARD.length. */
 .cv2-center {
   display: grid;
   grid-template-rows: 1fr 1fr 1fr;

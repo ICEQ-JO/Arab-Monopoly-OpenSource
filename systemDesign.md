@@ -26,8 +26,12 @@ display results.
 ### 2.1 `game/board.js` — static board data
 - Re-exports the single board (`game/boards/classic-vintage.js`) under the
   names `Room.js` expects. The project has exactly one map now — earlier
-  passes briefly supported multiple selectable maps via a `getBoard(mapType)`
-  router; that was removed in favor of a single fixed board.
+  passes supported multiple selectable maps (a `MAPS` registry keyed by map
+  name, resolved per-room via `Room.resolveBoard(mapKey)`/`rules.map`,
+  with a map-picker in the room-creation UI and `eu`/`middle-east`/
+  `worldwide` board files); that whole feature was removed in favor of a
+  single fixed board, since a "one classic board" scope was actually
+  wanted, not the extra picker UI and per-map test fixtures.
 - Exports `BOARD`: an array of 48 tile objects (index = tile id = board
   position). Each tile has a `type` from `TILE_TYPES` (`start`, `property`,
   `transit`, `utility`, `surprise`, `treasure`, `tax`, `rest`, `holding`,
@@ -51,12 +55,14 @@ display results.
   it's exhausted (decks are drawn from the front, not replaced after each
   draw).
 
-Also `game/characters.js`, same static-data pattern: `CHARACTER_IDS` (the
-six playable codenames — `D`, `Z`, `Y`, `H`, `SD`, `SE`) and
-`CHARACTER_NAMES` (codename → real display name, e.g. `D: "دروبي"`). This
-is **identity data only** — there is no ability logic anywhere server-side
-yet; the full ability spec lives in `characters.md` as a design doc not
-yet implemented (see §6).
+There is no `game/characters.js` and no character-selection system
+implemented anywhere in the current codebase, server or client — a
+player's identity is just the name they typed (see "Player identity" in
+§2.3). [characters.md](characters.md) is a **locked design spec** for a
+future 6-codename (`D`, `Z`, `Y`, `H`, `SD`, `SE`) character/ability
+system, written up before any code was started; it's the source of truth
+for *when* implementation begins, not a description of anything that
+exists today (see §6).
 
 ### 2.3 `game/Room.js` — the game engine
 One `Room` instance per active game (keyed by room code).
@@ -103,10 +109,17 @@ One `Room` instance per active game (keyed by room code).
   Pending trade offers between any two active players — see "Trading"
   below. `offerJailCard`/`requestJailCard` are booleans (a player only ever
   holds one Get Out of Jail Free card, so there's no count to trade).
-- `characterSelections{}` — `playerId -> characterId`, populated only
-  before `started` becomes true. Not cleared automatically once the game
-  starts; `start()` reads it once to assign each player's final
-  `characterId`/`name`, after which it's just inert history for that room.
+- `rules{}` — per-room settings, host-editable pre-start via
+  `updateSettings` (any key not already in `DEFAULT_RULES` is silently
+  ignored). Defaults: `vacationPot: true` (tax payments accumulate into a
+  shared pot, paid out to whoever next lands on the Rest/Vacation tile,
+  instead of just vanishing to the bank), `noRentInPrison: true` (a
+  property owner currently `inHolding` doesn't collect rent while there),
+  `evenBuild: true` (house/hotel building must stay balanced across a
+  group — see `buyHouse`/`sellHouse`), `doubleRentFullSet: true`
+  (unimproved rent doubles once a player owns every tile in a group),
+  `auction: true` (declining to buy a landed-on property opens it to
+  auction instead of leaving it unowned), `startingCash: 1500`.
 - `rollSeq` — an integer, starts at 0, incremented once per actual
   `rollDice()` call (not per broadcast). Exists purely so the client can
   detect "a new roll genuinely just happened" independent of the dice
@@ -303,26 +316,14 @@ one. Fixed by tracking two pieces of room-level state, both reset to
   below has the full rationale).
 - `toState()` is the **entire wire contract** — see §4.
 
-**Character selection (pre-game only):** a player has no name of their own
-choosing in this game — identity comes entirely from the character they
-pick. `addPlayer` assigns a throwaway placeholder name (`"Seat N"`,
-ordinal = join order) purely so the lobby has *something* to display
-before anyone's picked; it's never shown once `start()` runs.
-- `selectCharacter(playerId, characterId)` — rejected if the game has
-  already started, if `characterId` isn't one of `CHARACTER_IDS`, or if a
-  *different* player already holds it (re-selecting your own current pick
-  is a harmless no-op overwrite of the same map entry, not an error).
-- `resetCharacterSelections(playerId)` — host-only, pre-start-only; empties
-  the whole map so everyone has to pick again. Used by the host to force a
-  re-pick if, e.g., someone wants to swap characters around before
-  starting.
-- `start()` now does one extra pass before flipping `started`: for every
-  player with an entry in `characterSelections`, sets `player.characterId`
-  and overwrites `player.name` with `CHARACTER_NAMES[characterId]` — this
-  is the actual mechanism by which "the character you picked becomes who
-  you are" takes effect. A player with no selection (shouldn't be
-  reachable in practice — see the `startGame` precondition in §2.4) simply
-  keeps their placeholder name.
+**Player identity:** a player's name is exactly whatever they typed into
+`Lobby.jsx`'s name field, sent as-is on `createRoom`/`joinRoom` (see §2.4
+and §3). `addPlayer(id, token, name, preferredColor)` trims it and falls
+back to a placeholder (`"Seat N"`, ordinal = join order) only if it's
+blank — unreachable in practice since the client already blocks
+submitting an empty name, but a real server-side guard regardless (never
+trust the client alone). There is no character-selection system; see the
+`game/characters.js` note in §2.2.
 
 **Turn timer (4-minute hard cap):** every player gets exactly
 `TURN_TIME_LIMIT_MS` (4 minutes) of wall-clock time to complete their
@@ -534,17 +535,19 @@ module-level maps translate between them per connection:
 both in the ack — `token` is a write-once secret the client holds onto
 (localStorage) purely to reclaim a seat within the 20-second disconnect
 grace window (§2.3); it has no other purpose and is never broadcast to
-other clients. Neither event takes a `name` anymore — a player's eventual
-display name comes from the character they pick (§2.3 "Character
-selection"), not from anything typed at join time.
+other clients. Both events also take a `{ name }` (`createRoom` optionally
+takes `{ rules }` too, see §2.3's `rules{}` entry) — that typed name is the
+player's identity for the rest of the room's life; see "Player identity"
+in §2.3.
 
-**Character selection requires every seat filled before `startGame`
-works.** On top of its existing host-only/2-player-minimum checks,
-`startGame` now also requires `room.characterSelections` to have an entry
-for every current player — if not, the request is just silently ignored
-(no error ack needed; the client already disables its own Start button
-under the same condition, so a legitimate client never sends this request
-in the first place). Every other handler resolves the caller's `playerId` via
+**Every player needs an icon before `startGame` works.** On top of its
+existing host-only/`started`/2-player-minimum checks, `playerStartGame`
+also rejects with an error if any active player hasn't picked one via
+`setIcon` yet (picking an icon also assigns that player's board/token
+color — see `IconPicker.jsx` in §3) — the client already disables its own
+Start button under the same condition, so a legitimate client only ever
+sends this once every seat is ready. Every other handler resolves the
+caller's `playerId` via
 `socketToPlayer.get(socket.id)` before calling into `Room` — `Room`
 methods never see a raw socket id. Right after a room is created,
 `index.js` also wires `room.notify = () => broadcastState(code)` so the
@@ -652,46 +655,21 @@ the next remaining active player automatically becomes host.
   own and `handleConnect` will attempt the rejoin if that succeeds within
   the window. Holds no derived game state of its own — `myId` is the
   stable `playerId` returned by the server, never `socket.id`. Three
-  render phases now instead of two: `!joined` → `Lobby`; `joined &&
-  !state.started` → `CharacterSelect` (new — see below); `joined &&
-  state.started` → the board/HUD game screen.
-- `components/Lobby.jsx` — create-room / join-room form. **No name field**
-  — a player's eventual display name comes entirely from the character
-  they pick on the next screen, not from anything typed here. On a
-  successful ack, hands the full `{ code, playerId, token }` up to `App`,
-  which saves it via `saveSession` before moving to character selection.
-- `data/characters.js` — client-side display data for the six characters:
-  `id`, real `name`, a one-line `description`, `passive`/`active` ability
-  flavor text (placeholder wording — the real ability spec lives only in
-  `characters.md` until a future implementation pass), and `v1`/`v2`
-  portrait image paths (served from `public/characters/<id>/`). This is
-  purely presentational data, independent of and not synced with the
-  server's `characters.js` (which only knows ids and real names, no
-  images or descriptions).
-- `components/CharacterCard.jsx` — a click-to-flip card for one character.
-  Front: balance-gated portrait (`player.balance >= 3000 ? v2 : v1`),
-  name, description. Back: passive/active text plus a context-sensitive
-  control — `Play as <name>` if unclaimed, `Change character` if it's the
-  viewer's own current pick, or a plain `Taken by <name>` label (no
-  button) if someone else already has it. Used in both `CharacterSelect`
-  (pre-game) and `PlayerCard` (in-game, see below).
-- `components/CharacterSelect.jsx` — the pre-game lobby screen. Shows the
-  room code, a chip per player (color swatch, their picked character's
-  name or "picking…", a Host badge), the full 6-card grid via
-  `CharacterCard`, and host-only Reset-selections/Start-game controls —
-  Start is disabled (client-side) until every current player has a pick,
-  mirroring the server's own `startGame` precondition (§2.4). Emits
-  `selectCharacter`/`resetCharacterSelections`/`startGame`; renders
-  nothing it doesn't already have from `state.characterSelections` and
-  `state.players`.
-- `components/PlayerCard.jsx` — the viewer's *own* character card, shown
-  in-game (not during selection) in a dedicated column to the left of the
-  board. Same flip/portrait-swap behavior as `CharacterCard`'s front face,
-  but simplified to display-only (no select/change controls — the pick is
-  already locked in once the game has started). The front face's lower
-  portion is an intentionally empty `.player-card-tracker` div — reserved
-  for a future per-character ability-cooldown/use-count display once
-  abilities are implemented (§6), not built out yet.
+  render phases: `!joined || !state` → `Lobby`; `joined && !state.started`
+  → an inline waitroom (rendered directly in `App.jsx`, not a separate
+  component — room code, player list, `IconPicker`, `RulesPanel`, Start
+  button); `state.started` → the board/HUD game screen.
+- `components/Lobby.jsx` — create-room / join-room form. Takes a `name`
+  field (required, non-empty) — this is the player's identity for the
+  rest of the room's life, see "Player identity" in §2.3. On a successful
+  ack, hands the full `{ code, playerId, token }` up to `App`, which saves
+  it via `saveSession` before moving to the waitroom.
+- `components/IconPicker.jsx` — the waitroom's token-icon grid. Icons are
+  exclusive (each active player needs a distinct one, same pattern as a
+  color picker); picking one emits `setIcon`, which the server also uses
+  to assign that player's board/token color (`Room.setPlayerIcon`).
+- `components/RulesPanel.jsx` — displays/lets the host edit the room's
+  `rules{}` (see §2.3) before the game starts, via `updateSettings`.
 - `components/BoardClassic.jsx` — the sole board component (a prior
   `Board.jsx`, tied to now-deleted maps, was removed). `getGridPos(i)` maps
   each of the 48 tile indices onto a 9×9 CSS grid perimeter (tiles
@@ -799,12 +777,12 @@ the next remaining active player automatically becomes host.
 **Client → Server**
 | Event | Payload | Notes |
 |---|---|---|
-| `createRoom` | — | no `name` — identity comes from the chosen character (see `selectCharacter`); ack: `{ ok, code, playerId, token }` or `{ error }` |
-| `joinRoom` | `{ code }` | ack: `{ ok, code, playerId, token }` or `{ error }`; rejects if started/full |
+| `createRoom` | `{ name }` (optionally `{ rules }`, see §2.3) | `name` becomes the player's identity for the room's life — see "Player identity" in §2.3; ack: `{ ok, code, playerId, token }` or `{ error }` |
+| `joinRoom` | `{ code, name }` | ack: `{ ok, code, playerId, token }` or `{ error }`; rejects if started/full |
 | `rejoinRoom` | `{ code, playerId, token }` | ack: `{ ok, code, playerId, token }` or `{ error }`; only succeeds within the 20s disconnect grace window |
-| `selectCharacter` | `{ characterId }` | pre-start-only; rejects if already taken by someone else; ack: `{ ok }` or `{ error }` |
-| `resetCharacterSelections` | — | host-only, pre-start-only; clears every player's pick |
-| `startGame` | — | host-only, requires ≥2 players **and** every player having a `characterSelections` entry |
+| `setIcon` | `{ iconId }` | pre-start-only; rejects if already taken by someone else; also assigns the player's board/token color; ack: `{ ok }` or `{ error }` |
+| `updateRoomSettings` | `{ rules: {...} }` | host-only, pre-start-only; merges any keys already in `DEFAULT_RULES` (see §2.3) into `room.rules`, ignores the rest |
+| `startGame` | — | host-only, requires ≥2 active players **and** every one of them having picked an icon (`setIcon`) |
 | `rollDice` | — | current-player-only; rejected if `pendingAction` set |
 | `buyProperty` | — | resolves `pendingAction: awaitBuy` |
 | `declineBuy` | — | resolves `pendingAction: awaitBuy`; opens an auction on that tile |
@@ -847,7 +825,8 @@ the next remaining active player automatically becomes host.
   turnDeadline: <epoch ms> | null,  // for the client's countdown display only
   trades: [...],         // see §2.3 "Trading"
   auctions: [...],       // see §2.3 "Auctions"
-  characterSelections: {...},  // playerId -> characterId, see §2.3 "Character selection"
+  rules: {...},          // see §2.3's rules{} entry
+  vacationPot: number,   // see §2.3's rules{} entry (vacationPot rule)
   board: BOARD,          // static, sent every time (cheap, simplifies client)
 }
 ```
@@ -1012,35 +991,27 @@ grows much larger or tick rate increases.
   acknowledgment that "secret" here means "not broadcast to other
   players," not "encrypted at rest." Fine for a casual game between
   friends; would need revisiting for anything more sensitive.
-- **A player's display name is entirely derived from their chosen
-  character, never typed.** `createRoom`/`joinRoom` no longer accept a
-  `name` at all; the placeholder name `addPlayer` assigns (`"Seat N"`) is
-  only ever visible pre-game and is overwritten by `start()` from
-  `CHARACTER_NAMES` once everyone's picked. There is no path for a player
-  to end up with any other display name.
-- **Character selection is enforced once, at `startGame` time, not
-  continuously.** `selectCharacter`'s own uniqueness check (can't take a
-  character someone else already holds) is the only ongoing guard;
-  nothing re-validates `characterSelections` between picks and the start
-  of the game beyond that, since the only way entries get added or
-  removed pre-start is through `selectCharacter`/`resetCharacterSelections`
-  themselves, both of which already enforce it on the way in.
+- **A player's display name is exactly what they typed at `createRoom`/
+  `joinRoom` time**, trimmed, with a `"Seat N"` placeholder fallback only
+  if that came back blank (unreachable via the current client, which
+  already requires a non-empty name — see "Player identity" in §2.3).
+  There is no character-selection system to derive an identity from
+  instead — see §2.2 and §6.
+- **Icon selection is enforced once, at `startGame` time, not
+  continuously.** `setIcon`'s own uniqueness check (can't take an icon
+  someone else already holds) is the only ongoing guard; nothing
+  re-validates every player has one between picks and the start of the
+  game beyond `playerStartGame`'s own precondition check.
 
 ## 6. Known gaps (not yet built)
-- **Character abilities are entirely unimplemented.** `characters.md`
-  has the full locked design (D's toll zone, Z's trade/tax skim, Y's
-  seize/demolish, H's territory expansion, SD's station toll plus attack
-  power, SE's bank bonus plus alliance) but none of it is wired into
-  `Room.js` yet — picking a character currently only changes a player's
-  name/portrait, with zero gameplay effect. This was an explicit scope
-  boundary for the pass that built selection, not an oversight.
-- The flavor-text `passive`/`active` descriptions in `client/src/data/
-  characters.js` are placeholder wording the user asked to fill in "for
-  now" — not the real ability spec, which stays in `characters.md` until
-  an implementation pass exists to consume it.
-- `PlayerCard.jsx`'s `.player-card-tracker` div is intentionally empty —
-  reserved for a future per-character ability-cooldown/use-count display,
-  not built out yet since there are no abilities to track.
+- **The entire character system is unbuilt, not just abilities.**
+  `characters.md` has the full locked design (D's toll zone, Z's
+  trade/tax skim, Y's seize/demolish, H's territory expansion, SD's
+  station toll plus attack power, SE's bank bonus plus alliance) worked
+  out ahead of any code, but nothing from it exists yet — no
+  `game/characters.js`, no selection UI, no identity hook, nothing wired
+  into `Room.js`. Player identity today is just a typed name (§2.3). This
+  is a real future pass, not a partially-done one.
 - The grace window is a single fixed 20s for everyone, with no visibility
   into it for other players beyond a generic "reconnecting..." badge —
   there's no shared countdown showing exactly how much of the window is

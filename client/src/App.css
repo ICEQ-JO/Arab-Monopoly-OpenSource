@@ -200,61 +200,6 @@
 }
 .mode-btn-disabled:hover { background: transparent; color: var(--text-dim); }
 
-/* Map picker -- 2x2 grid of bordered cards (kept separate from .mode-picker/
-   .mode-btn since those are a single fused flex bar tuned for 1-2 short
-   words; four map names, one of them two words, wrapped/collided in that
-   layout). */
-.map-picker {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-}
-
-.map-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 10px 6px;
-  background: var(--panel-2);
-  border: 2px solid var(--border);
-  border-radius: 8px;
-  cursor: pointer;
-  color: var(--text-dim);
-  transition: all 0.2s;
-  font-family: inherit;
-}
-
-.map-btn-icon {
-  font-size: 20px;
-  line-height: 1;
-}
-
-.map-btn-label {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  text-align: center;
-}
-
-.map-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.25);
-}
-
-.map-btn:not(.active):hover { color: var(--text); background: rgba(0,0,0,0.05); }
-
-.map-picker-desc {
-  margin: 8px 0 0;
-  font-size: 12px;
-  font-style: italic;
-  color: var(--text-dim);
-  text-align: center;
-}
-
 /* Same red-banner treatment as .lobby-game-title, scaled down for inline use */
 .mode-btn-soon-banner {
   display: block;

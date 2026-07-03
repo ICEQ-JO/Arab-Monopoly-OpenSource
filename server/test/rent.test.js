@@ -2,13 +2,11 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeRoom, cleanup } from "./helpers.js";
 import { BOARD as CLASSIC_BOARD, COLOR_GROUP_DEFS as CLASSIC_GROUPS } from "../src/game/boards/classic-vintage.js";
-import { BOARD as EU_BOARD, COLOR_GROUP_DEFS as EU_GROUPS } from "../src/game/boards/eu.js";
-import { BOARD as ME_BOARD, COLOR_GROUP_DEFS as ME_GROUPS } from "../src/game/boards/middle-east.js";
 
 // Rent is tuned per color group at that group's cheapest ("base") tile, but
 // a pricier tile in the same group should never charge the same (or less)
 // as that base tile -- it scales up proportionally to its own price instead.
-// Verified two ways: (1) statically over every board's raw data, so a future
+// Verified two ways: (1) statically over the board's raw data, so a future
 // edit that reintroduces a flat/duplicate rent table gets caught without
 // needing a live game, and (2) through Room.calcRent, so the scaled numbers
 // actually reach the player during a real rent charge.
@@ -39,16 +37,6 @@ test("classic-vintage: every above-base-price tile out-charges its group's base 
   assertGroupRentScalesWithPrice(CLASSIC_BOARD, "classic-vintage");
   // Sanity check the test itself isn't vacuous -- olive actually has price variance.
   assert.notEqual(CLASSIC_GROUPS.olive, undefined);
-});
-
-test("eu: capital group (London $220 vs Athens $240) scales rent by price", () => {
-  assertGroupRentScalesWithPrice(EU_BOARD, "eu");
-  assert.notEqual(EU_GROUPS.capital, undefined);
-});
-
-test("middle-east: capital group (Muscat $220 vs Kuwait City $240) scales rent by price", () => {
-  assertGroupRentScalesWithPrice(ME_BOARD, "middle-east");
-  assert.notEqual(ME_GROUPS.capital, undefined);
 });
 
 test("calcRent charges the pricier tile in a group more than the cheaper one at the same house count", () => {

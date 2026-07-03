@@ -9,6 +9,125 @@ in the same pass.
 
 ---
 
+## Pass 32 — 2026-07-04 — systemDesign.md: purge the fictional character-selection system
+
+**Goal:** user flagged that `createRoom`/`joinRoom` are documented as
+taking no `name` ("identity comes from the chosen character"), and that
+`DEFAULT_RULES` isn't documented anywhere. Investigating turned up a much
+bigger problem than either of those two specific claims: `systemDesign.md`
+had an entire, detailed, *past-tense* description of a character-selection
+system — `game/characters.js`, `Room.characterSelections`,
+`selectCharacter`/`resetCharacterSelections` events, a `characterSelections`
+wire field, and four client components (`CharacterSelect.jsx`,
+`CharacterCard.jsx`, `PlayerCard.jsx`, `data/characters.js`) — none of
+which exist anywhere in the actual codebase (confirmed via repo-wide grep:
+zero hits for any of those names in `client/src` or `server/src`). The
+doc read as if a whole pass had implemented character selection (identity
++ UI, abilities deliberately deferred); in reality nothing was ever built
+— `characters.md` is, and always was, just a locked design spec for a
+future pass.
+
+**What was done:** rewrote every section touching this, not just the two
+the user pointed at, since a doc can't accurately describe "identity
+comes from a typed name" while other sections still claim the opposite a
+few hundred lines away:
+- §2.2: the `game/characters.js` paragraph now says the file doesn't
+  exist; `characters.md` is a spec for *when* implementation starts, not
+  a description of anything present.
+- §2.3: replaced the `characterSelections{}` state-field bullet with a
+  `rules{}` bullet documenting the real `DEFAULT_RULES` shape and what
+  each rule does (`vacationPot`, `noRentInPrison`, `evenBuild`,
+  `doubleRentFullSet`, `auction`, `startingCash`) — the user's second ask.
+  Replaced the "Character selection" subsection with a "Player identity"
+  one describing the real mechanism (`addPlayer`'s trim + `"Seat N"`
+  fallback).
+- §2.4: fixed the identity-model paragraph (`createRoom`/`joinRoom` do
+  take `name`) and the `startGame` precondition (real one: every active
+  player needs an icon via `setIcon`, not a character).
+- §3: removed the four nonexistent character components; replaced with
+  accurate entries for `Lobby.jsx` (does take a name), `IconPicker.jsx`,
+  and `RulesPanel.jsx` — the actual pre-game identity/rules UI. Fixed the
+  "three render phases" line (no `CharacterSelect` phase; the waitroom is
+  inline in `App.jsx`).
+- §4: fixed the `createRoom`/`joinRoom` wire-protocol rows, removed the
+  two nonexistent character events, added the two undocumented real ones
+  (`setIcon`, `updateRoomSettings`) and fixed `startGame`'s precondition.
+  Also fixed `toState()`'s shape snippet — `characterSelections` isn't a
+  real field; `rules`/`vacationPot` are real fields that were missing.
+- §5/§6: replaced the character-identity invariant and the
+  "character abilities are entirely unimplemented" gap entries (which
+  implied selection *was* implemented) with accurate versions.
+
+**Why these calls:** this is the same reasoning as Pass 31's `MAPS`-doc
+fix, just a much larger blast radius once the actual scope became clear —
+fixing only the two spots the user named would have left the doc
+internally contradictory (accurate about identity in one place,
+describing a fictional character system as real fact 300 lines later).
+`BoardClassic.jsx`/`Dice.jsx`'s own unrelated staleness in §3 (grid-size
+claims, a removed "M" badge, a stale prop list) was left untouched —
+genuinely out of scope for an identity/rules-focused pass, not connected
+to the character-system fiction.
+
+**State at end of pass:** docs-only change; `vite build` and `npm test`
+(54/54) reconfirmed clean (no code touched).
+
+---
+
+## Pass 31 — 2026-07-04 — Remove multi-map support, back to a single fixed board
+
+**Goal:** `systemDesign.md` claimed "the project has exactly one map now,"
+but the code still had a full multi-map feature (a `MAPS` registry, a
+`Room.resolveBoard(mapKey)`/`rules.map` mechanism, a map-picker in the
+room-creation UI, and three extra board data files). Started this pass
+intending to just fix the stale doc to describe the multi-map code
+accurately, but the user redirected: they actually want only one map,
+no picker at all — so the code changed to match the doc's claim instead
+of the other way around.
+
+**What was done:**
+- `server/src/game/board.js`: dropped the `MAPS` registry and the
+  `eu`/`middle-east`/`worldwide` imports; now just re-exports
+  `BOARD`/`TOTAL_TILES`/`COLOR_GROUP_DEFS`/`propertiesByGroup` straight
+  from `classic-vintage.js`.
+- `server/src/game/Room.js`: removed `resolveBoard(mapKey)` and the `map`
+  entry in `DEFAULT_RULES`/the `"map" in rules` branch in
+  `updateSettings` — the constructor now assigns `_board`/`_totalTiles`/
+  `_propertiesByGroup`/`_holdingTileId` directly from the single board
+  import, once, instead of resolving them per-room from a lookup.
+- Deleted `server/src/game/boards/eu.js`, `middle-east.js`, `worldwide.js`.
+- `client/src/components/Lobby.jsx`: removed the `MAPS` array, `mapKey`
+  state, the map-picker block (icon/label buttons + description) from the
+  room-creation step, and the `rules: { map: mapKey }` payload on
+  `createRoom` (the server already ignores unknown `rules` keys, but no
+  reason to keep sending it). Corresponding `.map-picker`/`.map-btn*` CSS
+  removed from `App.css`.
+- `server/test/rent.test.js`: dropped the two tests that used
+  `eu.js`/`middle-east.js` board data purely as fixtures to prove the
+  generic rent-scaling-by-price logic held across boards with different
+  price tables — that logic is still fully covered by the remaining
+  classic-vintage test, just over one board's data now instead of three.
+- `systemDesign.md` §2.1: updated to name what was actually just removed
+  (the `MAPS` registry / `resolveBoard(mapKey)` pair) instead of the
+  doc's previous, already-inaccurate claim of a `getBoard(mapType)`
+  router — and to note *why* (picker UI + per-map test fixtures for a
+  feature that wasn't wanted), not just that it happened.
+- Fixed a couple of small drive-by staleness spots found along the way: a
+  `classicVintage.css` comment near `.cv2-center` that referenced grid
+  size "varying by map" (no longer true — one board, always 13 tracks).
+
+**Known gaps left for later:** the research pass that led into this also
+turned up that `systemDesign.md`'s room-creation/wire-protocol section is
+stale in unrelated ways (documents `createRoom` as not taking a `name`,
+doesn't list the current `DEFAULT_RULES` shape) — out of scope for this
+pass, flagged separately.
+
+**State at end of pass:** `vite build` and `oxlint` clean; `npm test`
+54/54 (56 minus the 2 dropped eu/middle-east fixture tests). Not visually
+verified by the assistant per [[feedback-verification-approach]] — user to
+confirm room creation no longer shows a map step.
+
+---
+
 ## Pass 30 — 2026-07-04 — Bankrupt players get sent back to the join screen
 
 **Goal:** a bankrupt player stayed stuck on the board looking at a stale
