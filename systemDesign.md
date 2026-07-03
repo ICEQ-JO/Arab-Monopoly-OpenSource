@@ -94,8 +94,10 @@ One `Room` instance per active game (keyed by room code).
   firing on its own, with no client request to respond to — can still push
   the new state to everyone in the room.
 - `trades[]` — `{ id, fromId, toId, offerProperties, offerMoney,
-  requestProperties, requestMoney }`. Pending trade offers between any two
-  active players — see "Trading" below.
+  offerJailCard, requestProperties, requestMoney, requestJailCard }`.
+  Pending trade offers between any two active players — see "Trading"
+  below. `offerJailCard`/`requestJailCard` are booleans (a player only ever
+  holds one Get Out of Jail Free card, so there's no count to trade).
 - `characterSelections{}` — `playerId -> characterId`, populated only
   before `started` becomes true. Not cleared automatically once the game
   starts; `start()` reads it once to assign each player's final
@@ -109,6 +111,18 @@ One `Room` instance per active game (keyed by room code).
   brand-new array over the wire regardless of whether anything changed.
   Used client-side to trigger the dice-roll animation exactly once per
   real roll (see `Dice.jsx` below), never to gate any server-side logic.
+- `jailSeq`/`jailedPlayerId`/`jailFromTileId` — the same "bumped on the
+  real event, not on every resend" pattern as `rollSeq`/`cardSeq`, but for
+  `sendToHolding`. `jailFromTileId` is the tile the player was actually
+  standing on the instant they got jailed (the Go-to-Holding tile itself,
+  or wherever a jailing card was drawn) — captured because `sendToHolding`
+  overwrites `player.position` with the Holding Pen tile in the same beat,
+  so without this the client would never see that intermediate tile at
+  all. Together these three let the client animate a jailing as "walk to
+  `jailFromTileId` like any ordinary move, pause briefly, then teleport
+  into the Holding Pen tile" instead of either walking the *entire* board
+  to get there or skipping the walk-in altogether (see `BoardClassic.jsx`'s
+  `buildResolvedLegs`).
 
 **Core flow:**
 ```
@@ -202,7 +216,18 @@ one. Fixed by tracking two pieces of room-level state, both reset to
   not the turn they were sent to the Holding Pen on — gated client-side on
   `!state.lastRoll` (i.e. they haven't rolled yet this turn), since
   `lastRoll` is non-null the instant they're freshly confined mid-roll but
-  resets to `null` at the start of their following turn.
+  resets to `null` at the start of their following turn. The client offers
+  a third option alongside these two on that same turn: just calling
+  `rollDice` directly, which already fully supports the "roll for doubles
+  to escape" attempt on its own (see the Holding Pen logic in `rollDice`
+  above) — this was previously reachable server-side but had no button.
+- **Holding a Get Out of Jail Free card does not exempt a player from being
+  sent to the Holding Pen in the first place.** `sendToHolding` no longer
+  checks `holdingFreeCard` at all — it used to silently auto-consume the
+  card and skip jailing entirely, which meant `useHoldingFreeCard` could
+  never actually be exercised (a player could never be both `inHolding` and
+  still holding the card). The card is only ever spent afterward, via the
+  explicit `useHoldingFreeCard` action above, matching real rules.
 - `playerEndTurn(playerId)` is the player-facing "End turn" action,
   distinct from the internal `endTurn()` below (also called by
   `kickPlayer`, which shouldn't require a prior roll). It enforces that
@@ -328,7 +353,13 @@ involuntary network blips, not to give a deliberate quit a 20-second undo.
 at any time — trading is **not gated on turn order or `pendingAction`**;
 it's a side negotiation, not a turn action. A trade offer is one-directional
 in shape but two-sided in content: the proposer's `offerProperties` +
-`offerMoney` for the target's `requestProperties` + `requestMoney`.
+`offerMoney` + `offerJailCard` for the target's `requestProperties` +
+`requestMoney` + `requestJailCard`. A Get Out of Jail Free card can be
+offered/requested the same as a property or coins — `offerJailCard: true`
+requires the proposer's own `holdingFreeCard` to actually be `true` (same
+idea as `isTradeable()` for properties, just a boolean instead of a tile
+lookup), re-checked again on acceptance since it could have been spent (or
+traded away again) in the interim.
 `index.js`'s `proposeTrade`/`counterTrade` socket handlers acknowledge the
 client's callback with the `Room` method's result (`{ ok, tradeId }` or
 `{ error }`) — an earlier version of both handlers silently dropped the
@@ -775,9 +806,9 @@ the next remaining active player automatically becomes host.
 | `confirmCardMove` | — | resolves `pendingAction: awaitCardMove`; current-player-only, no decline option |
 | `endTurn` | — | current-player-only; rejected if `pendingAction` set **or no roll yet this turn**; finalizes bankruptcy via `finishTurn` if balance is still negative |
 | `leaveRoom` | — | graceful manual exit; forfeits the seat exactly like a disconnect would |
-| `proposeTrade` | `{ toId, offerProperties, offerMoney, requestProperties, requestMoney }` | not turn-gated; either side can be any active player; ack: `{ ok, tradeId }` or `{ error }` |
+| `proposeTrade` | `{ toId, offerProperties, offerMoney, offerJailCard, requestProperties, requestMoney, requestJailCard }` | not turn-gated; either side can be any active player; ack: `{ ok, tradeId }` or `{ error }` |
 | `respondTrade` | `{ tradeId, accept }` | only the trade's `toId` may respond |
-| `counterTrade` | `{ tradeId, offerProperties, offerMoney, requestProperties, requestMoney }` | only the trade's `toId` may counter; replaces the original; ack: `{ ok, tradeId }` or `{ error }` |
+| `counterTrade` | `{ tradeId, offerProperties, offerMoney, offerJailCard, requestProperties, requestMoney, requestJailCard }` | only the trade's `toId` may counter; replaces the original; ack: `{ ok, tradeId }` or `{ error }` |
 | `cancelTrade` | `{ tradeId }` | only the trade's `fromId` may cancel |
 
 **Server → Client**
@@ -794,6 +825,9 @@ the next remaining active player automatically becomes host.
   log: [...up to 20],
   lastRoll: [d1, d2] | null,
   rollSeq: number,        // increments once per real rollDice() call -- drives the dice animation, not a gameplay signal
+  jailSeq: number,        // increments once per real sendToHolding() call -- lets the client animate a jailing as a walk-then-teleport instead of a full-board walk
+  jailedPlayerId: string | null,
+  jailFromTileId: number | null,  // tile the player was standing on the instant sendToHolding fired
   canRollAgain: boolean,  // client only shows "Roll dice" when true
   lastCard: { deck, text } | null,
   pendingAction: {...} | null,

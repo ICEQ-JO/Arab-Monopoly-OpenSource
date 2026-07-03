@@ -63,6 +63,19 @@ export class Room {
     // from earlier this turn and got resent in an unrelated state update",
     // the same way rollSeq disambiguates repeat dice broadcasts.
     this.cardSeq = 0;
+    // Bumped on every real sendToHolding() (landing on the Go-to-Holding tile,
+    // or a card that sends the player there) -- lets the client tell a jailing
+    // apart from an ordinary move so it can snap the token straight to the
+    // Holding Pen instead of animating it walking the whole board to get there.
+    this.jailSeq = 0;
+    this.jailedPlayerId = null;
+    // The tile the player was actually standing on the instant they got sent
+    // to the Holding Pen -- either the Go-to-Holding tile itself, or wherever
+    // a card that jails them was drawn. Since sendToHolding overwrites
+    // player.position in the same beat that draws/lands, the client would
+    // otherwise never see this tile at all; exposing it lets the token
+    // animate walking there first before the actual teleport into the pen.
+    this.jailFromTileId = null;
   }
 
   // Sets which map's tile data this room plays on. Safe to call any time
@@ -524,15 +537,17 @@ export class Room {
     }
   }
 
+  // Holding a Get Out of Jail Free card doesn't exempt a player from being sent
+  // here in the first place -- real rules only let them spend it *after*
+  // they're already in (see useHoldingFreeCard, offered alongside Pay $50 on
+  // their own next turn), same as landing on the tile or drawing the card.
   sendToHolding(player) {
-    if (player.holdingFreeCard) {
-      player.holdingFreeCard = false;
-      this.pushLog(`${player.name} used a free pass to avoid the Holding Pen.`);
-      return;
-    }
+    this.jailFromTileId = player.position;
     player.position = this._holdingTileId;
     player.inHolding = true;
     player.holdingTurns = 0;
+    this.jailedPlayerId = player.id;
+    this.jailSeq += 1;
     this.pushLog(`${player.name} was sent to the Holding Pen.`);
   }
 
@@ -883,7 +898,10 @@ export class Room {
   // Shared validation for any new trade, whether it's a fresh proposal or a
   // counter-offer replacing one. Returns { trade } on success, { error } otherwise --
   // never mutates this.trades itself, so callers decide what to do with the result.
-  buildTrade(fromId, { toId, offerProperties = [], offerMoney = 0, requestProperties = [], requestMoney = 0, timeLimitSec = null }) {
+  buildTrade(fromId, {
+    toId, offerProperties = [], offerMoney = 0, offerJailCard = false,
+    requestProperties = [], requestMoney = 0, requestJailCard = false, timeLimitSec = null,
+  }) {
     const fromPlayer = this.playerById(fromId);
     const toPlayer = this.playerById(toId);
     if (!fromPlayer || fromPlayer.bankrupt || fromPlayer.left) return { error: "You can't trade right now" };
@@ -891,8 +909,9 @@ export class Room {
     if (!Number.isInteger(offerMoney) || offerMoney < 0 || !Number.isInteger(requestMoney) || requestMoney < 0) {
       return { error: "Coin amounts must be non-negative whole numbers" };
     }
-    if (offerProperties.length === 0 && requestProperties.length === 0 && offerMoney === 0 && requestMoney === 0) {
-      return { error: "A trade needs to include at least one property or coins" };
+    if (offerProperties.length === 0 && requestProperties.length === 0 &&
+      offerMoney === 0 && requestMoney === 0 && !offerJailCard && !requestJailCard) {
+      return { error: "A trade needs to include at least one property, card, or coins" };
     }
     if (!offerProperties.every((id) => this.isTradeable(id, fromId))) {
       return { error: "You can only offer undeveloped properties you own" };
@@ -900,13 +919,20 @@ export class Room {
     if (!requestProperties.every((id) => this.isTradeable(id, toId))) {
       return { error: "You can only request undeveloped properties they own" };
     }
+    if (offerJailCard && !fromPlayer.holdingFreeCard) {
+      return { error: "You don't have a Get Out of Jail Free card to offer" };
+    }
+    if (requestJailCard && !toPlayer.holdingFreeCard) {
+      return { error: "They don't have a Get Out of Jail Free card" };
+    }
     if (timeLimitSec != null && (!Number.isInteger(timeLimitSec) ||
       timeLimitSec < MIN_TRADE_TIME_LIMIT_SEC || timeLimitSec > MAX_TRADE_TIME_LIMIT_SEC)) {
       return { error: "Invalid time limit" };
     }
     return {
       trade: {
-        id: nanoid(), fromId, toId, offerProperties, offerMoney, requestProperties, requestMoney,
+        id: nanoid(), fromId, toId, offerProperties, offerMoney, offerJailCard,
+        requestProperties, requestMoney, requestJailCard,
         deadline: timeLimitSec ? Date.now() + timeLimitSec * 1000 : null,
         timer: null,
       },
@@ -996,6 +1022,12 @@ export class Room {
     if (!trade.requestProperties.every((id) => this.isTradeable(id, trade.toId))) {
       return { error: "The request is no longer valid" };
     }
+    if (trade.offerJailCard && !fromPlayer.holdingFreeCard) {
+      return { error: "The offer is no longer valid" };
+    }
+    if (trade.requestJailCard && !toPlayer.holdingFreeCard) {
+      return { error: "The request is no longer valid" };
+    }
     // Only actually giving money away requires affording it -- offering/requesting
     // $0 must never fail this check just because the player's current balance
     // happens to be negative (a trade is one of the few ways an indebted player can
@@ -1017,6 +1049,14 @@ export class Room {
     }
     if (trade.offerMoney > 0) this.transferMoney(trade.fromId, trade.toId, trade.offerMoney);
     if (trade.requestMoney > 0) this.transferMoney(trade.toId, trade.fromId, trade.requestMoney);
+    if (trade.offerJailCard) {
+      fromPlayer.holdingFreeCard = false;
+      toPlayer.holdingFreeCard = true;
+    }
+    if (trade.requestJailCard) {
+      toPlayer.holdingFreeCard = false;
+      fromPlayer.holdingFreeCard = true;
+    }
 
     this.pushLog(`${fromPlayer.name} and ${toPlayer.name} completed a trade.`);
     // No bankruptcy check here -- the funds check just above already guarantees
@@ -1135,6 +1175,9 @@ export class Room {
       board: this._board,
       rollSeq: this.rollSeq,
       cardSeq: this.cardSeq,
+      jailSeq: this.jailSeq,
+      jailedPlayerId: this.jailedPlayerId,
+      jailFromTileId: this.jailFromTileId,
       rules: this.rules,
       vacationPot: this.vacationPot,
     };
@@ -1164,6 +1207,9 @@ export class Room {
       consecutiveDoubles: this.consecutiveDoubles,
       rollSeq: this.rollSeq,
       cardSeq: this.cardSeq,
+      jailSeq: this.jailSeq,
+      jailedPlayerId: this.jailedPlayerId,
+      jailFromTileId: this.jailFromTileId,
       rules: this.rules,
       vacationPot: this.vacationPot,
     };
@@ -1201,6 +1247,9 @@ export class Room {
     room.consecutiveDoubles = snapshot.consecutiveDoubles || 0;
     room.rollSeq = snapshot.rollSeq || 0;
     room.cardSeq = snapshot.cardSeq || 0;
+    room.jailSeq = snapshot.jailSeq || 0;
+    room.jailedPlayerId = snapshot.jailedPlayerId || null;
+    room.jailFromTileId = snapshot.jailFromTileId ?? null;
 
     for (const player of room.players) {
       if (!player.connected && !player.left && !player.bankrupt) {

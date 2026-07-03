@@ -9,6 +9,175 @@ in the same pass.
 
 ---
 
+## Pass 17 — 2026-07-03 — Fix: card-reveal UI, movement/jail animation, jail-card logic, board polish
+
+**Goal:** a long run of small-to-medium UI/UX bug reports and polish
+requests against the classic-vintage board, found through the user's own
+playtesting rather than a single planned feature.
+
+**What was done (card reveal):**
+- The Surprise/Treasure card popup was centered on the full browser
+  viewport (`position: fixed`), but the left/right side panels aren't the
+  same width (`minmax(280,460)` vs `minmax(240,360)`), so the viewport's
+  center drifts away from the board's actual center. Moved `CardReveal`'s
+  render out of `App.jsx` and into `BoardClassic.jsx`, inside `.cv2-board`
+  itself (`position: relative`), and switched the overlay to
+  `position: absolute` — it's now centered on the board regardless of
+  panel widths or screen size.
+- The reveal only ever auto-dismissed after a fixed 3s, with no way to
+  dismiss it early (the overlay is `pointer-events: none` so a click just
+  passed through to the board underneath). Bumped the timeout to 5s and
+  added a `window` click listener while visible that hides it early
+  without swallowing the click — whatever's underneath (e.g. a movement
+  card's "Continue" button) still receives it too. The existing
+  hold-open-until-`confirmCardMove` behavior for movement cards is
+  unchanged.
+
+**What was done (movement/jail animation):**
+- Every move (dice roll, card-driven jump, a jailing) animated as walking
+  *forward* tile-by-tile around the board, including jailings — which
+  should snap straight to the Holding Pen, not walk the whole board to get
+  there — and "move back N spaces" cards, which should walk *backward*.
+- Added `jailSeq`/`jailedPlayerId`/`jailFromTileId` to `Room` state (same
+  "bumped on the real event" pattern as `rollSeq`/`cardSeq`).
+  `jailFromTileId` is the tile the player was actually standing on the
+  instant `sendToHolding` fired (the Go-to-Holding tile, or wherever a
+  jailing card was drawn) — `sendToHolding` overwrites `player.position`
+  in that same beat, so without capturing it first the client would never
+  see that tile at all.
+- Client (`BoardClassic.jsx`): a jailing now plays as an ordinary walk from
+  the origin up to `jailFromTileId`, a 500ms pause, then a fast teleport
+  hop into the Holding Pen tile — not one long walk from origin to jail,
+  and not one long teleport skipping the walk-in either (both were tried
+  and rejected mid-pass before landing on this two-phase version). Added
+  `computeBackwardPath` (mirrors the existing forward-path walker) and
+  threaded a `backward` flag through `computeLegWaypoints`, driven by
+  reading the *previous* render's `pendingAction` — `confirmCardMove`
+  clears `pendingAction` in the same beat it applies the move, so the
+  negative `steps` that signals "walk this one backward" is already gone
+  from the *current* broadcast by the time the position change shows up.
+- Refactored per-move leg-building into `buildResolvedLegs`, which
+  resolves a move into a flat list of legs each carrying its own
+  `tileId`/`glideMs`/`glideEase`/`pauseBeforeMs` up front, so the jail
+  case's walk-then-pause-then-teleport and every ordinary move share one
+  timer-chain implementation instead of two.
+- Separately: Buy/Decline/Continue could flash on screen for a single
+  frame right when Roll was clicked, then hide, then reappear once the
+  glide finished. Cause: the gate used `currentTokenMoving` (derived from
+  `movingIds`, which only updates via a `useEffect` one render *after* a
+  fresh broadcast lands), so on that broadcast's first render `pending` was
+  already set but the gate hadn't caught up. Fixed by also checking the
+  `tokenMoving` prop, which `App.jsx` already sets synchronously in its raw
+  socket handler (in the same batch as the state update itself) for
+  `CardReveal`'s benefit — just wasn't being consulted here too.
+
+**What was done (jail/Get Out of Jail Free card logic):**
+- `sendToHolding` used to auto-consume a held `holdingFreeCard` and skip
+  jailing entirely — meaning a player could never actually be both
+  `inHolding` and still holding the card, so `useHoldingFreeCard` was
+  unreachable in practice. Removed that auto-avoid; holding the card no
+  longer exempts a player from being sent to the Holding Pen, matching
+  real rules (it's spent afterward, by choice).
+- The in-Holding-Pen turn options only ever showed "Pay $50" (+ "Use Free
+  Card", which — because of the bug above — could never actually appear).
+  Added a "Roll Dice" button alongside them: `rollDice` already fully
+  supported the "roll for doubles to escape" attempt server-side, it just
+  had no button.
+- Get Out of Jail Free cards can now be traded. `buildTrade`/`respondTrade`
+  accept `offerJailCard`/`requestJailCard` booleans, validated against
+  `holdingFreeCard` at proposal and re-validated at acceptance (same
+  "everything could have changed since the offer was made" re-check
+  properties already get). Client: a `JailCardChip`/`StaticJailCardChip` in
+  `TradeModal.jsx` alongside property chips in both the trade builder and
+  the read-only trade view.
+- Added regression tests for all three (`holdingPen.test.js`,
+  `trade.test.js`).
+
+**What was done (board visual polish):**
+- Removed the "M" badge on mortgaged tiles (kept the grey color change) —
+  purely a "we don't want this element" request, not a bug.
+- 4 houses built on a narrow non-corner tile could overflow the tile's own
+  colored band and get clipped by its `overflow: hidden`, since the icons
+  had a fixed size and `flex-shrink: 0`. Changed to `flex: 0 1 clamp(...)`
+  (shrinkable, clamp as the *ideal* size) + `aspect-ratio: 1`, so a full
+  row of 4 always shrinks to fit rather than clipping, on any screen size.
+- A genuinely strange one: on the left/right side tiles, whenever a
+  property's mortgaged state or house count changed, the rotated/vertical-
+  writing-mode property-name text would visually break and "mesh" to one
+  side until a full page refresh — even though neither change should touch
+  that text box's layout at all (the band and building badge are both
+  `position: absolute`, out of flow). Concluded this is a browser
+  layout-cache bug specific to `writing-mode: vertical-*` + `transform`
+  combinations, not anything wrong in the CSS itself. Fixed pragmatically:
+  keyed the text container on `` `${mortgaged}-${houses}` `` so React
+  remounts it fresh whenever either changes, forcing the browser to lay it
+  out from scratch — the same effect a refresh has, without needing one.
+- House/hotel badge icons on left/right tiles weren't rotated to face
+  outward the way every other bit of a side tile's content (name, price,
+  treasure/surprise art) already is, so they looked inconsistent with the
+  rest of the tile. Rotated the icons themselves (not the badge, whose
+  top-to-bottom packing on a tall/narrow tile was already correct) 90°/
+  -90° for left/right respectively. Also replaced `house.svg`/`hotel.svg`
+  with simpler, bolder solid pictograms and recolored them via
+  `background-color` to classic Monopoly-piece colors (green house, red
+  hotel) instead of a single shared off-white tone.
+- Bumped the active-player token's glow (blur/spread/opacity in the
+  `cv2-token-glow` keyframes) — a "make it more noticeable, not too much"
+  request, not a bug.
+
+**What was done (game log & waitroom):**
+- The log rendered oldest-first with the newest-highlight style
+  (`.game-log-newest`) landing on the wrong entry — `state.log` is already
+  newest-first server-side (`pushLog` unshifts), but the client called
+  `.reverse()` before rendering. Removed the reversal.
+- Player names inside log entries are now swapped for that player's icon
+  inline (`renderEntry` in `GameLog.jsx` splits each line on every active
+  player's name, longest names checked first so one can't shadow another
+  that contains it, and renders `PlayerAvatar` in place of the match).
+- Player icon images are now eagerly preloaded (`new Image().src = ...`
+  for every entry in `ICONS`, at module load in `App.jsx`) instead of only
+  fetching the first time the waitroom's icon picker actually renders one.
+- `startGame` failing (e.g. not every player has picked an icon yet) was
+  silent — the client called `socket.emit("startGame")` with no callback,
+  so the server's `{ error }` response just vanished. Added the callback,
+  an error message shown to the host, a "No icon yet" tag next to any
+  player who hasn't picked one, and a "Please select a player icon" prompt
+  under the picker if *you* haven't. The error also self-clears once the
+  blocking condition resolves, rather than waiting for another Start click.
+
+**Why these calls:**
+- Two-phase walk-then-teleport for jailing (not "walk the whole board" or
+  "teleport the whole distance"): the user explicitly asked for this exact
+  shape ("play movement animation, wait 0.5 seconds, play go to jail
+  animation") after seeing the first teleport-only attempt cut the walk-in
+  off too abruptly — this was an iterative fix across three back-and-forth
+  rounds in this same pass, not a one-shot design.
+- Remounting via a `key` change instead of chasing the underlying browser
+  bug further: no CSS-only fix reliably worked around it (the bug is in
+  the engine's layout cache, not in anything this stylesheet does wrong),
+  and forcing a fresh mount is a standard, low-risk workaround for exactly
+  this class of problem, with no observable behavior loss since
+  `ClassicTile` holds no internal state to lose on remount.
+- Read icon/rotation intent from the user directly (`AskUserQuestion`)
+  rather than guessing: "fill the icons for better appearance" and "fix
+  the rotation" both had multiple plausible readings (recolor vs. redraw
+  vs. layout-direction vs. glyph-rotation) with meaningfully different
+  implementations, and there was no way to visually verify the current
+  rendering without running the app (which the user had asked not to use
+  tooling for earlier in the session).
+
+**State at end of pass:** server test suite green throughout (53/53 by the
+end, up from 49 — 4 new regression tests added this pass); client
+`vite build` and `oxlint` run clean after every change. `systemDesign.md`
+updated in place — new `jailSeq`/`jailedPlayerId`/`jailFromTileId` and
+trade `offerJailCard`/`requestJailCard` wire-protocol entries, the
+Get-Out-of-Jail-Free auto-avoid removal noted explicitly, the "Roll Dice"
+third Holding Pen option. All changes verified via `npm test` (server) and
+`vite build` (client) only — no live playtest in this pass; the user
+checked each UI fix visually on their own end.
+
+---
+
 ## Pass 16 — 2026-06-30 — Character selection (D/Z/Y/H/SD/SE), board widening, animated dice
 
 **Goal:** the user fleshed out the 6-character design from `characters.md`

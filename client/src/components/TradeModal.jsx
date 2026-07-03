@@ -36,8 +36,10 @@ function perspectiveOf(trade, myId) {
     otherId: mine ? trade.toId : trade.fromId,
     giveProperties: mine ? trade.offerProperties : trade.requestProperties,
     giveMoney: mine ? trade.offerMoney : trade.requestMoney,
+    giveJailCard: mine ? trade.offerJailCard : trade.requestJailCard,
     getProperties: mine ? trade.requestProperties : trade.offerProperties,
     getMoney: mine ? trade.requestMoney : trade.offerMoney,
+    getJailCard: mine ? trade.requestJailCard : trade.offerJailCard,
   };
 }
 
@@ -67,6 +69,31 @@ function StaticPropChip({ tile }) {
   );
 }
 
+// A player only ever holds one Get Out of Jail Free card (there's no count to
+// show), so it's a single toggle-able chip alongside the property ones
+// rather than a list -- reuses the same chip look via the same class names.
+function JailCardChip({ selected, onToggle }) {
+  return (
+    <div
+      className={`trade-prop-chip${selected ? " selected" : ""}`}
+      style={{ "--chip-color": "#c9960a" }}
+      onClick={onToggle}
+    >
+      <span className="prop-dot" />
+      <span className="trade-prop-chip-name">Get Out of Jail Free</span>
+    </div>
+  );
+}
+
+function StaticJailCardChip() {
+  return (
+    <div className="trade-prop-chip trade-prop-chip--static" style={{ "--chip-color": "#c9960a" }}>
+      <span className="prop-dot" />
+      <span className="trade-prop-chip-name">Get Out of Jail Free</span>
+    </div>
+  );
+}
+
 // Same visual as the editable coin slider, but locked to the trade's fixed
 // amount -- keeps the read-only view looking like the same screen instead
 // of a different summary layout.
@@ -91,6 +118,8 @@ function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitL
   const [requestIds, setRequestIds] = useState([]);
   const [offerMoney, setOfferMoney] = useState(0);
   const [requestMoney, setRequestMoney] = useState(0);
+  const [offerJailCard, setOfferJailCard] = useState(false);
+  const [requestJailCard, setRequestJailCard] = useState(false);
   const [timeLimitSec, setTimeLimitSec] = useState(null);
   const [error, setError] = useState("");
 
@@ -111,8 +140,10 @@ function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitL
       {
         offerProperties: offerIds,
         offerMoney: Math.min(Number(offerMoney) || 0, maxOffer),
+        offerJailCard,
         requestProperties: requestIds,
         requestMoney: Math.min(Number(requestMoney) || 0, maxRequest),
+        requestJailCard,
         timeLimitSec,
       },
       (res) => {
@@ -147,10 +178,15 @@ function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitL
       <div className="trade-cols-2">
         <div className="trade-col-side">
           <div className="trade-col-label">You give</div>
-          {myTiles.length === 0 && <p className="hint" style={{ margin: 0, fontSize: 12 }}>No tradeable properties</p>}
+          {myTiles.length === 0 && !me?.holdingFreeCard && (
+            <p className="hint" style={{ margin: 0, fontSize: 12 }}>No tradeable properties</p>
+          )}
           {myTiles.map((t) => (
             <PropChip key={t.id} tile={t} selected={offerIds.includes(t.id)} onToggle={(id) => toggle(offerIds, setOfferIds, id)} />
           ))}
+          {me?.holdingFreeCard && (
+            <JailCardChip selected={offerJailCard} onToggle={() => setOfferJailCard((v) => !v)} />
+          )}
           <div className="trade-money-row">
             <div className="trade-money-label">
               <span>Coins</span>
@@ -168,10 +204,15 @@ function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitL
 
         <div className="trade-col-side">
           <div className="trade-col-label">You get</div>
-          {theirTiles.length === 0 && <p className="hint" style={{ margin: 0, fontSize: 12 }}>No tradeable properties</p>}
+          {theirTiles.length === 0 && !them?.holdingFreeCard && (
+            <p className="hint" style={{ margin: 0, fontSize: 12 }}>No tradeable properties</p>
+          )}
           {theirTiles.map((t) => (
             <PropChip key={t.id} tile={t} selected={requestIds.includes(t.id)} onToggle={(id) => toggle(requestIds, setRequestIds, id)} />
           ))}
+          {them?.holdingFreeCard && (
+            <JailCardChip selected={requestJailCard} onToggle={() => setRequestJailCard((v) => !v)} />
+          )}
           <div className="trade-money-row">
             <div className="trade-money-label">
               <span>Coins</span>
@@ -220,7 +261,7 @@ function TradeForm({ board, ownership, players, myId, otherId, onSubmit, submitL
 // an editable TradeForm instead of toggling any state in here.
 function TradeView({ trade, board, players, myId, onBack, onCounter }) {
   const [error, setError] = useState("");
-  const { mine, otherId, giveProperties, giveMoney, getProperties, getMoney } = perspectiveOf(trade, myId);
+  const { mine, otherId, giveProperties, giveMoney, giveJailCard, getProperties, getMoney, getJailCard } = perspectiveOf(trade, myId);
   const me = players.find((p) => p.id === myId);
   const other = players.find((p) => p.id === otherId);
   const giveTiles = giveProperties.map((id) => board[id]).filter(Boolean);
@@ -269,8 +310,11 @@ function TradeView({ trade, board, players, myId, onBack, onCounter }) {
       <div className="trade-cols-2">
         <div className="trade-col-side">
           <div className="trade-col-label">You give</div>
-          {giveTiles.length === 0 && giveMoney === 0 && <p className="hint" style={{ margin: 0, fontSize: 12 }}>Nothing</p>}
+          {giveTiles.length === 0 && giveMoney === 0 && !giveJailCard && (
+            <p className="hint" style={{ margin: 0, fontSize: 12 }}>Nothing</p>
+          )}
           {giveTiles.map((t) => <StaticPropChip key={t.id} tile={t} />)}
+          {giveJailCard && <StaticJailCardChip />}
           {giveMoney > 0 && <StaticMoneyRow amount={giveMoney} />}
         </div>
 
@@ -278,8 +322,11 @@ function TradeView({ trade, board, players, myId, onBack, onCounter }) {
 
         <div className="trade-col-side">
           <div className="trade-col-label">You get</div>
-          {getTiles.length === 0 && getMoney === 0 && <p className="hint" style={{ margin: 0, fontSize: 12 }}>Nothing</p>}
+          {getTiles.length === 0 && getMoney === 0 && !getJailCard && (
+            <p className="hint" style={{ margin: 0, fontSize: 12 }}>Nothing</p>
+          )}
           {getTiles.map((t) => <StaticPropChip key={t.id} tile={t} />)}
+          {getJailCard && <StaticJailCardChip />}
           {getMoney > 0 && <StaticMoneyRow amount={getMoney} />}
         </div>
       </div>

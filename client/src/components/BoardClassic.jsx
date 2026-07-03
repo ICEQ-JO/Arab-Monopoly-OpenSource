@@ -5,6 +5,7 @@ import Dice from "./Dice";
 import PlayerToken from "./PlayerToken";
 import PropertyCardDetail from "./PropertyCardDetail";
 import TransitCardDetail from "./TransitCardDetail";
+import CardReveal from "./CardReveal";
 import { ICONS } from "../data/icons";
 import "../classicVintage.css";
 
@@ -96,15 +97,30 @@ function buildTrackCenters(N, rimFr, innerFr) {
   return centers;
 }
 
-// Every move (including a card-driven teleport) walks forward tile by tile,
-// wrapping past the last tile back to 0 -- matches how movement already
-// works server-side, and is what lets a token visually trace the board
-// instead of jumping straight to wherever it landed.
+// Every ordinary move (including a card-driven teleport-to-a-tile like
+// "Advance to X") walks forward tile by tile, wrapping past the last tile
+// back to 0 -- matches how movement already works server-side, and is what
+// lets a token visually trace the board instead of jumping straight to
+// wherever it landed.
 function computeForwardPath(from, to, totalTiles) {
   const path = [];
   let cur = from;
   while (cur !== to) {
     cur = (cur + 1) % totalTiles;
+    path.push(cur);
+  }
+  return path;
+}
+
+// A "move back N spaces" card is the one move that actually goes the other
+// way around the board -- walking it forward instead would have the token
+// loop almost all the way around to end up "behind" where it started.
+// Wraps past 0 back to the last tile, the mirror image of the forward path.
+function computeBackwardPath(from, to, totalTiles) {
+  const path = [];
+  let cur = from;
+  while (cur !== to) {
+    cur = (cur - 1 + totalTiles) % totalTiles;
     path.push(cur);
   }
   return path;
@@ -117,8 +133,10 @@ function computeForwardPath(from, to, totalTiles) {
 // leg also carries how many original tiles it covers, so a long straight
 // run can be given proportionally more time than a short one -- otherwise
 // a leg crossing 10 tiles would take exactly as long as one crossing 1.
-function computeLegWaypoints(from, to, sideLen, totalTiles) {
-  const path = computeForwardPath(from, to, totalTiles);
+function computeLegWaypoints(from, to, sideLen, totalTiles, backward = false) {
+  const path = backward
+    ? computeBackwardPath(from, to, totalTiles)
+    : computeForwardPath(from, to, totalTiles);
   const legs = [];
   let legStart = 0;
   path.forEach((tileId, idx) => {
@@ -182,7 +200,16 @@ function ClassicTile({ tile, owned, players, sideLen, onSelect, isSelected }) {
         </div>
       )}
 
-      <div className={`cv2-body${hasIcon ? " cv2-body--icon" : ""}`}>
+      {/* Keyed on mortgaged/houses -- both are purely cosmetic sibling changes
+          elsewhere in this tile (the band appearing/disappearing, the
+          building badge appearing/disappearing) that don't touch cv2-body's
+          own box model at all, yet reliably left its rotated/vertical-
+          writing-mode text visually "stuck" mid-tile until a full page
+          reload recomputed it (a Chromium layout-cache bug, not anything
+          wrong in this CSS). Forcing React to unmount/remount this node
+          instead of patching it in place sidesteps the stale layout
+          entirely -- same effect a refresh has, without one. */}
+      <div key={`${!!owned?.mortgaged}-${houses}`} className={`cv2-body${hasIcon ? " cv2-body--icon" : ""}`}>
         {type === "transit" ? (
           <div className="cv2-transit-layout">
             <span className="cv2-transit-name">{nameParts[0]}</span>
@@ -205,7 +232,6 @@ function ClassicTile({ tile, owned, players, sideLen, onSelect, isSelected }) {
         )}
       </div>
 
-      {owned?.mortgaged && <div className="cv2-dev">M</div>}
       {!owned?.mortgaged && houses > 0 && (
         <div className={`cv2-building-badge${isHotel ? " cv2-building-badge--hotel" : ""}`}>
           {isHotel ? (
@@ -274,8 +300,8 @@ function TokenLayer({ players, sideLen, trackCenters, currentPlayerId, visualPos
   );
 }
 
-export default function BoardClassic({ state, myId, onTokenMovingChange }) {
-  const { board, ownership, players, lastRoll, turnIndex, rollSeq } = state;
+export default function BoardClassic({ state, myId, tokenMoving, onTokenMovingChange }) {
+  const { board, ownership, players, lastRoll, turnIndex, rollSeq, jailSeq, jailedPlayerId, jailFromTileId } = state;
 
   // Rim tracks (row 1 / row N / col 1 / col N) are wider than inner tracks so
   // tiles take up more of the board and the center shrinks. Tiles become
@@ -436,12 +462,80 @@ export default function BoardClassic({ state, myId, onTokenMovingChange }) {
   const [celebratingIds, setCelebratingIds] = useState(() => new Set());
   const prevPositionsRef = useRef(new Map(players.map((p) => [p.id, p.position])));
   const prevRollSeqRef = useRef(rollSeq);
+  const prevJailSeqRef = useRef(jailSeq);
   const prevPropCountsRef = useRef(new Map(players.map((p) => [p.id, p.properties.length])));
+  // A trip to the Holding Pen (landing on the Go-to-Holding tile, or a card
+  // that sends the player there) plays as an ordinary walk up to whichever
+  // tile actually triggered the jailing (jailFromTileId -- the Go-to-Holding
+  // tile itself, or wherever the card was drawn), a short pause so that
+  // arrival actually reads before anything else happens, and then a fast
+  // teleport hop into the Holding Pen tile itself -- the one stretch of the
+  // trip that's never walked tile-by-tile. jailSeq (bumped only by a real
+  // sendToHolding) is how the server tells the client which of this
+  // broadcast's moves, if any, is that kind.
+  const JAIL_TELEPORT_MS = 450;
+  const JAIL_PAUSE_MS = 500;
+
+  // Resolves a move into a flat list of ready-to-play legs, each already
+  // carrying its own tileId/glideMs/glideEase plus an optional
+  // pauseBeforeMs (a beat of held stillness before that leg starts). Every
+  // ordinary move is just its corner-to-corner walk, resolved up front
+  // instead of computed lazily per leg. A jail-bound move is that same walk
+  // (but only as far as jailFromTileId) followed by the teleport leg described
+  // above -- pauseBeforeMs on the teleport leg is what actually produces the
+  // "arrive, pause, then vanish into the pen" read instead of the walk's own
+  // deceleration and the teleport's snap blurring together back to back.
+  function buildResolvedLegs({ from, to, isJailTeleport, jailFromDestination, backward }) {
+    const resolve = (path) =>
+      path.map((leg, i, arr) => ({
+        tileId: leg.tileId,
+        glideMs: Math.min(LEG_MAX_MS, Math.max(LEG_MIN_MS, leg.tileCount * MS_PER_TILE)),
+        glideEase: legEasing(i, arr.length),
+        pauseBeforeMs: 0,
+      }));
+
+    if (!isJailTeleport) {
+      return resolve(computeLegWaypoints(from, to, sideLen, board.length, backward));
+    }
+    // Falls back to `to` itself (a zero-length walk, straight to the plain
+    // teleport) on the off chance jailFromDestination is ever missing --
+    // always set alongside isJailTeleport in practice, this is just insurance.
+    const walkTarget = jailFromDestination ?? to;
+    const walkLegs = resolve(computeLegWaypoints(from, walkTarget, sideLen, board.length));
+    const teleportLeg = { tileId: to, glideMs: JAIL_TELEPORT_MS, glideEase: LEG_EASE_IN_OUT, pauseBeforeMs: JAIL_PAUSE_MS };
+    return [...walkLegs, teleportLeg];
+  }
+
+  // A "move back N spaces" card's direction only exists on the broadcast
+  // where it's sitting in pendingAction, waiting on confirmCardMove --
+  // confirmCardMove clears pendingAction in the very same beat it actually
+  // applies the move, so by the time the position change shows up in
+  // `players` the negative `steps` that says "walk this one backward" is
+  // already gone from the *current* state. Read from the PREVIOUS render's
+  // pendingAction instead (prevPendingActionRef, captured into a local at
+  // the top of the effect below before being overwritten with the current
+  // one) -- that's the awaitCardMove broadcast this move is resolving,
+  // still intact one render back. Critically, this also means the very
+  // first broadcast -- where the roll's own forward move and a fresh
+  // awaitCardMove both land together in the same update -- reads the *old*
+  // pendingAction from before that card existed, so it doesn't mistake the
+  // dice-roll's own move for the (still-pending) card's.
+  const prevPendingActionRef = useRef(state.pendingAction);
 
   useEffect(() => {
     const prevPositions = prevPositionsRef.current;
     const rollJustHappened = rollSeq !== prevRollSeqRef.current;
     prevRollSeqRef.current = rollSeq;
+    const jailJustHappened = jailSeq !== prevJailSeqRef.current;
+    prevJailSeqRef.current = jailSeq;
+    const prevPendingAction = prevPendingActionRef.current;
+    prevPendingActionRef.current = state.pendingAction;
+    const backwardMoverId =
+      prevPendingAction?.type === "awaitCardMove" &&
+      prevPendingAction.effect?.type === "move" &&
+      prevPendingAction.effect.steps < 0
+        ? prevPendingAction.playerId
+        : null;
 
     const moves = [];
     players.forEach((p) => {
@@ -466,7 +560,11 @@ export default function BoardClassic({ state, myId, onTokenMovingChange }) {
       timers.push(setTimeout(() => {
         playMoveSwoosh();
         moves.forEach(({ id, from, to }) => {
-          const legs = computeLegWaypoints(from, to, sideLen, board.length);
+          const isJailTeleport = jailJustHappened && id === jailedPlayerId;
+          const isBackwardCardMove = !isJailTeleport && backwardMoverId === id;
+          const legs = buildResolvedLegs({
+            from, to, isJailTeleport, jailFromDestination: jailFromTileId, backward: isBackwardCardMove,
+          });
           setFloatingIds((s) => new Set(s).add(id));
           let i = 0;
           const stepLeg = () => {
@@ -485,12 +583,17 @@ export default function BoardClassic({ state, myId, onTokenMovingChange }) {
               }, LANDING_MS));
               return;
             }
-            const { tileId, tileCount } = legs[i];
-            const glideMs = Math.min(LEG_MAX_MS, Math.max(LEG_MIN_MS, tileCount * MS_PER_TILE));
-            const glideEase = legEasing(i, legs.length);
-            setVisualPositions((m) => new Map(m).set(id, { tileId, glideMs, glideEase }));
-            i += 1;
-            timers.push(setTimeout(stepLeg, glideMs));
+            const leg = legs[i];
+            const runLeg = () => {
+              setVisualPositions((m) => new Map(m).set(id, { tileId: leg.tileId, glideMs: leg.glideMs, glideEase: leg.glideEase }));
+              i += 1;
+              timers.push(setTimeout(stepLeg, leg.glideMs));
+            };
+            if (leg.pauseBeforeMs) {
+              timers.push(setTimeout(runLeg, leg.pauseBeforeMs));
+            } else {
+              runLeg();
+            }
           };
           stepLeg();
         });
@@ -504,7 +607,7 @@ export default function BoardClassic({ state, myId, onTokenMovingChange }) {
       }), 700));
     }
     return () => timers.forEach(clearTimeout);
-  }, [players, rollSeq, board.length, sideLen, trackCenters]);
+  }, [players, rollSeq, jailSeq, jailedPlayerId, jailFromTileId, state.pendingAction, board.length, sideLen, trackCenters]);
 
   // Tracks whether the dice's own jump/spin animation (1s, see dice.css
   // `d3-jump`) is still playing for the roll that just happened, so the
@@ -645,6 +748,8 @@ export default function BoardClassic({ state, myId, onTokenMovingChange }) {
           </div>
         )}
 
+        <CardReveal state={state} myId={myId} tokenMoving={tokenMoving} />
+
         <div className="cv2-center" style={{ gridRow: `2 / ${N}`, gridColumn: `2 / ${N}` }}>
           <div className="cv2-title">Monoboly عرب</div>
 
@@ -661,7 +766,17 @@ export default function BoardClassic({ state, myId, onTokenMovingChange }) {
               // every action (including Buy/Decline, which the server marks
               // pending as soon as the destination is known, well before the
               // client-side glide finishes) until it actually lands there.
-              if (isMyTurn && currentTokenMoving) {
+              // Checks the `tokenMoving` prop too, not just this component's
+              // own currentTokenMoving -- that local value comes from
+              // movingIds, which only updates via a useEffect one render
+              // after a fresh broadcast lands, so on the very first render
+              // of a new roll/card-move `pending` is already set but
+              // currentTokenMoving hasn't caught up yet. That's exactly what
+              // flashed Buy/Decline or Continue on screen for a frame before
+              // hiding it again. `tokenMoving` is detected synchronously in
+              // App.jsx's raw socket handler (in the same batch as the state
+              // update itself), so it's already true on that first render.
+              if (isMyTurn && (tokenMoving || currentTokenMoving)) {
                 return <p className="cv2-turn-status">Moving…</p>;
               }
               // Buy/Decline takes priority over everything else -- it's the
@@ -688,10 +803,17 @@ export default function BoardClassic({ state, myId, onTokenMovingChange }) {
                 );
               }
               // Stuck in the Holding Pen at the start of the turn (before
-              // rolling): pay out or use a free card instead of rolling.
+              // rolling): try rolling doubles to escape on the spot, pay the
+              // fine, or use a free card instead -- rollDice itself already
+              // handles the "rolled doubles" escape server-side, this just
+              // exposes it as a choice alongside the other two instead of
+              // only ever showing Pay $50.
               if (isMyTurn && !pending && me?.inHolding && !state.lastRoll) {
                 return (
                   <div className="cv2-action-row">
+                    <button className="cv2-roll-btn" onClick={() => { primeAudio(); socket.emit("rollDice"); }}>
+                      Roll Dice
+                    </button>
                     <button className="cv2-roll-btn" onClick={() => socket.emit("payToLeaveHolding")}>
                       Pay $50
                     </button>

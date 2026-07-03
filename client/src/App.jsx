@@ -10,14 +10,23 @@ import OpenTrades from "./components/OpenTrades";
 import GameLog from "./components/GameLog";
 import TradeModal from "./components/TradeModal";
 import AuctionModal from "./components/AuctionModal";
-import CardReveal from "./components/CardReveal";
 import DevTools from "./components/DevTools";
 import RulesPanel from "./components/RulesPanel";
 import IconPicker from "./components/IconPicker";
 import ThemeToggle from "./components/ThemeToggle";
 import { IconCopy, IconCheck } from "./components/icons";
+import { ICONS } from "./data/icons";
 import { playTradePopup, playTradeAccepted, playTradeDeclined, playBoughtTile } from "./sfx";
 import "./App.css";
+
+// Eagerly fetches every player-icon image the instant this module loads --
+// well before a player ever reaches the waitroom's IconPicker -- so they're
+// already decoded and cached instead of visibly popping in over the network
+// the first time that picker (or a board token wearing one) renders.
+ICONS.forEach((icon) => {
+  const img = new Image();
+  img.src = icon.img;
+});
 
 function App() {
   const [joined, setJoined] = useState(false);
@@ -25,6 +34,7 @@ function App() {
   const [myId, setMyId] = useState(null);
   const [rejoining, setRejoining] = useState(false);
   const [tradeOpen, setTradeOpen] = useState(false);
+  const [startError, setStartError] = useState("");
   const [theme, setTheme] = useState(getStoredTheme);
   const [codeCopied, setCodeCopied] = useState(false);
   // Whether the current turn's token is still gliding to its destination
@@ -72,6 +82,14 @@ function App() {
     });
     if (hasNewTrade) playTradePopup();
   }, [state, myId]);
+
+  // Clears a stale "every player must choose an icon" start-game error the
+  // moment that stops being true (e.g. the last holdout finally picks one),
+  // instead of leaving it on screen until the host clicks Start again.
+  useEffect(() => {
+    if (!state || !startError) return;
+    if (state.players.every((p) => p.icon)) setStartError("");
+  }, [state, startError]);
 
   // Accept/decline and buying a tile have no dedicated socket event of their
   // own that reaches every client (respondTrade/buyProperty only call back
@@ -205,6 +223,7 @@ function App() {
 
   if (!state.started) {
     const isHost = state.hostId === myId;
+    const me = state.players.find((p) => p.id === myId);
     const rules = state.rules || {};
     return (
       <div className="lobby">
@@ -261,6 +280,7 @@ function App() {
                     {p.name}{p.id === myId ? " (you)" : ""}
                   </span>
                   {state.hostId === p.id && <span className="waitroom-host-badge">HOST</span>}
+                  {!p.icon && <span className="error">No icon yet</span>}
                 </div>
               ))}
               {Array.from({ length: Math.max(0, 2 - state.players.length) }).map((_, i) => (
@@ -275,6 +295,7 @@ function App() {
             <div className="lobby-input-group">
               <label className="lobby-input-label">Your Icon</label>
               <IconPicker players={state.players} myId={myId} />
+              {!me?.icon && <div className="error">Please select a player icon</div>}
             </div>
 
             {/* Game rules panel */}
@@ -289,10 +310,16 @@ function App() {
                     Waiting for another player to join…
                   </div>
                 )}
+                {startError && <div className="error">{startError}</div>}
                 <button
                   className="lobby-btn-primary"
                   disabled={state.players.length < 2}
-                  onClick={() => socket.emit("startGame")}
+                  onClick={() => {
+                    setStartError("");
+                    socket.emit("startGame", (res) => {
+                      if (res?.error) setStartError(res.error);
+                    });
+                  }}
                 >
                   Start Game
                 </button>
@@ -319,7 +346,12 @@ function App() {
         <MyProperties state={state} myId={myId} />
       </div>
 
-      <BoardClassic state={state} myId={myId} onTokenMovingChange={setTokenMoving} />
+      <BoardClassic
+        state={state}
+        myId={myId}
+        tokenMoving={tokenMoving}
+        onTokenMovingChange={setTokenMoving}
+      />
 
       <div className="game-screen-right">
         <PlayersPanel
@@ -338,7 +370,6 @@ function App() {
         <TradeModal state={state} myId={myId} onClose={() => setTradeOpen(false)} />
       )}
       <AuctionModal state={state} myId={myId} />
-      <CardReveal state={state} myId={myId} tokenMoving={tokenMoving} />
       {import.meta.env.DEV && <DevTools />}
     </div>
   );

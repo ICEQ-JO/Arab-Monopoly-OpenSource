@@ -56,6 +56,47 @@ test("offering a developed property is rejected", () => {
   assert.equal(propose.error, "You can only offer undeveloped properties you own");
 });
 
+test("a Get Out of Jail Free card can be offered in a trade and transfers on acceptance", () => {
+  const room = makeRoom();
+  after(() => cleanup(room));
+  const alice = room.players[0];
+  const bob = room.players[1];
+  alice.holdingFreeCard = true;
+
+  const propose = room.proposeTrade("p0", { toId: "p1", offerJailCard: true });
+  assert.equal(propose.ok, true);
+
+  const accept = room.respondTrade("p1", propose.tradeId, true);
+
+  assert.deepEqual(accept, { ok: true });
+  assert.equal(alice.holdingFreeCard, false);
+  assert.equal(bob.holdingFreeCard, true);
+});
+
+test("offering a Get Out of Jail Free card you don't have is rejected", () => {
+  const room = makeRoom();
+  after(() => cleanup(room));
+
+  const propose = room.proposeTrade("p0", { toId: "p1", offerJailCard: true });
+
+  assert.equal(propose.error, "You don't have a Get Out of Jail Free card to offer");
+});
+
+test("requesting a Get Out of Jail Free card the other player no longer has is rejected on acceptance", () => {
+  const room = makeRoom();
+  after(() => cleanup(room));
+  const bob = room.players[1];
+  bob.holdingFreeCard = true;
+
+  const propose = room.proposeTrade("p0", { toId: "p1", requestJailCard: true });
+  assert.equal(propose.ok, true);
+
+  bob.holdingFreeCard = false; // spent it (e.g. used to leave the Holding Pen) before responding
+  const accept = room.respondTrade("p1", propose.tradeId, true);
+
+  assert.equal(accept.error, "The request is no longer valid");
+});
+
 test("counterTrade replaces the original offer and flips the direction", () => {
   const room = makeRoom();
   after(() => cleanup(room));

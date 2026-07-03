@@ -83,6 +83,18 @@ test("payToLeaveHolding rejects if it isn't that player's turn", () => {
   assert.equal(room.payToLeaveHolding("p1").error, "Not your turn");
 });
 
+test("holding a Get Out of Jail Free card does not exempt a player from being sent to the Holding Pen", () => {
+  const room = makeRoom();
+  after(() => cleanup(room));
+  const alice = room.players[0];
+  alice.holdingFreeCard = true;
+
+  room.sendToHolding(alice);
+
+  assert.equal(alice.inHolding, true, "still sent to the Holding Pen despite holding a free card");
+  assert.equal(alice.holdingFreeCard, true, "the card is untouched -- spent later via useHoldingFreeCard, not automatically");
+});
+
 test("useHoldingFreeCard consumes the card and clears inHolding without charging coins", () => {
   const room = makeRoom();
   after(() => cleanup(room));
