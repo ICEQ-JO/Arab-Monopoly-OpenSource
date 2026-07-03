@@ -385,17 +385,22 @@ function App() {
         <PlayersPanel
           state={state}
           myId={myId}
-          onOpenTrade={() => setTradeOpen(true)}
           onLeave={handleLeave}
           theme={theme}
           onToggleTheme={toggleTheme}
+          tokenMoving={tokenMoving}
         />
-        <OpenTrades state={state} myId={myId} onOpen={() => setTradeOpen(true)} />
+        <OpenTrades
+          state={state}
+          myId={myId}
+          onOpen={(tradeId) => setTradeOpen({ type: "view", tradeId })}
+          onCreate={() => setTradeOpen({ type: "create" })}
+        />
         <GameLog state={state} />
       </div>
 
       {tradeOpen && state.started && (
-        <TradeModal state={state} myId={myId} onClose={() => setTradeOpen(false)} />
+        <TradeModal state={state} myId={myId} initialScreen={tradeOpen} onClose={() => setTradeOpen(false)} />
       )}
       <AuctionModal state={state} myId={myId} />
       {import.meta.env.DEV && <DevTools />}

@@ -394,8 +394,16 @@ export class Room {
     let next = (prev + steps) % this._totalTiles;
     if (next < 0) next += this._totalTiles;
     if (steps > 0 && next < prev) {
-      player.balance += 200;
-      this.pushLog(`${player.name} passed Start Plaza and collected 200 coins.`);
+      // Landing exactly on Start pays double the pass-through bonus -- a
+      // distinct, rarer outcome (needing the exact roll) worth the extra
+      // payout, same idea as Free Parking jackpots in other variants.
+      if (next === 0) {
+        player.balance += 400;
+        this.pushLog(`${player.name} landed on Start Plaza and collected 400 coins.`);
+      } else {
+        player.balance += 200;
+        this.pushLog(`${player.name} passed Start Plaza and collected 200 coins.`);
+      }
     }
     player.position = next;
     this.resolveTile(player);

@@ -352,10 +352,10 @@ function TradeView({ trade, board, players, myId, onBack, onCounter }) {
   );
 }
 
-export default function TradeModal({ state, myId, onClose }) {
+export default function TradeModal({ state, myId, onClose, initialScreen }) {
   const { board, ownership, players, trades } = state;
-  // { type: "menu" } | { type: "propose", playerId } | { type: "view", tradeId } | { type: "counter", tradeId }
-  const [screen, setScreen] = useState({ type: "menu" });
+  // { type: "menu" } | { type: "create" } | { type: "propose", playerId } | { type: "view", tradeId } | { type: "counter", tradeId }
+  const [screen, setScreen] = useState(initialScreen || { type: "menu" });
   const others = players.filter((p) => p.id !== myId && !p.bankrupt && !p.left);
   const openTrades = trades.filter((t) => t.toId === myId || t.fromId === myId);
 
@@ -372,14 +372,14 @@ export default function TradeModal({ state, myId, onClose }) {
   function proposeNew(params, ack) {
     socket.emit("proposeTrade", { toId: effectiveScreen.playerId, ...params }, (res) => {
       ack(res);
-      if (res?.ok) setScreen({ type: "menu" });
+      if (res?.ok) onClose();
     });
   }
 
   function counterExisting(params, ack) {
     socket.emit("counterTrade", { tradeId: effectiveScreen.tradeId, ...params }, (res) => {
       ack(res);
-      if (res?.ok) setScreen({ type: "menu" });
+      if (res?.ok) onClose();
     });
   }
 
@@ -387,11 +387,38 @@ export default function TradeModal({ state, myId, onClose }) {
     <div className="trade-modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="trade-modal">
         <div className="trade-modal-header">
-          <h2>{effectiveScreen.type === "menu" ? "Trade" : "Propose Trade"}</h2>
+          <h2>
+            {effectiveScreen.type === "menu" ? "Trade"
+              : effectiveScreen.type === "create" ? "Create a Trade"
+              : effectiveScreen.type === "view" ? "Trade Offer"
+              : effectiveScreen.type === "counter" ? "Counter Offer"
+              : "Propose Trade"}
+          </h2>
           <button className="trade-modal-close" onClick={onClose}>✕</button>
         </div>
 
         <div className="trade-modal-body">
+          {effectiveScreen.type === "create" && (
+            <>
+              <p className="trade-section-label">Select a player to trade with:</p>
+              <div className="trade-player-list">
+                {others.map((p) => (
+                  <button
+                    key={p.id}
+                    className="trade-player-btn trade-player-btn--create"
+                    onClick={() => setScreen({ type: "propose", playerId: p.id })}
+                  >
+                    <PlayerAvatar player={p} sizeClass="trade-player-avatar-lg" />
+                    <span className="trade-player-btn-name">{p.name}</span>
+                  </button>
+                ))}
+                {others.length === 0 && (
+                  <p className="hint" style={{ margin: 0 }}>No other active players to trade with.</p>
+                )}
+              </div>
+            </>
+          )}
+
           {effectiveScreen.type === "menu" && (
             <>
               {openTrades.length > 0 && (
@@ -447,7 +474,7 @@ export default function TradeModal({ state, myId, onClose }) {
               board={board} ownership={ownership} players={players}
               myId={myId} otherId={effectiveScreen.playerId}
               onSubmit={proposeNew} submitLabel="Send Offer"
-              onBack={() => setScreen({ type: "menu" })}
+              onBack={() => setScreen(initialScreen?.type === "create" ? { type: "create" } : { type: "menu" })}
             />
           )}
 

@@ -1,10 +1,13 @@
-import TradeCountdown from "./TradeCountdown";
+import PlayerAvatar from "./PlayerAvatar";
 
-// Right-panel at-a-glance list of the current player's open trades (both
-// incoming offers awaiting a response and outgoing offers still pending).
-// Clicking a row opens the full Trade modal, which already lists every
-// trade the player is party to in detail (accept/decline/counter/cancel).
-export default function OpenTrades({ state, myId, onOpen }) {
+// Right-panel "Trades" box -- groups the create-trade trigger and the
+// at-a-glance list of the current player's open trades (both incoming
+// offers awaiting a response and outgoing offers still pending) into one
+// panel. Clicking a row jumps straight to that trade's own detail screen
+// (accept/decline/counter/cancel) in the Trade modal, skipping the modal's
+// own open-trades menu since the row itself already identifies the trade --
+// rows stay minimal (who <-> who), no status/countdown clutter.
+export default function OpenTrades({ state, myId, onOpen, onCreate }) {
   const { players, trades = [] } = state;
   if (!state.started) return null;
 
@@ -17,24 +20,32 @@ export default function OpenTrades({ state, myId, onOpen }) {
 
   return (
     <div className="open-trades-panel">
-      <span className="open-trades-title">⇄ Open Trades</span>
+      <div className="open-trades-header">
+        <span className="open-trades-title">Trades</span>
+        <button className="primary open-trades-create-btn" onClick={onCreate}>
+          + Create
+        </button>
+      </div>
       {mine.length === 0 ? (
         <p className="open-trades-empty">No open trades</p>
       ) : (
         <div className="open-trades-list">
           {mine.map((t) => {
             const incoming = t.toId === myId;
-            const counterpart = players.find((p) => p.id === (incoming ? t.fromId : t.toId));
+            const fromP = players.find((p) => p.id === t.fromId);
+            const toP = players.find((p) => p.id === t.toId);
             return (
-              <button key={t.id} className="open-trade-row" onClick={onOpen}>
-                <span className="open-trade-dot" style={{ background: counterpart?.color }} />
-                <span className="open-trade-name">
-                  {playerLabel(t.fromId)} ⇄ {playerLabel(t.toId)}
-                </span>
-                {t.deadline && <TradeCountdown deadline={t.deadline} />}
-                <span className={`open-trade-status${incoming ? " incoming" : ""}`}>
-                  {incoming ? "Respond" : "Pending"}
-                </span>
+              <button
+                key={t.id}
+                className={`open-trade-row${incoming ? " incoming" : ""}`}
+                style={incoming ? { "--c": fromP?.color } : undefined}
+                onClick={() => onOpen(t.id)}
+              >
+                <PlayerAvatar player={fromP} sizeClass="swatch" />
+                <span className="open-trade-name">{playerLabel(t.fromId)}</span>
+                <span className="open-trade-arrow">⇄</span>
+                <PlayerAvatar player={toP} sizeClass="swatch" />
+                <span className="open-trade-name">{playerLabel(t.toId)}</span>
               </button>
             );
           })}

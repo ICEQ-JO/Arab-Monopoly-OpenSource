@@ -151,7 +151,8 @@ rollDice(playerId)
        -> if still stuck (no escape, not yet at the 3-turn cap): finishTurn(player), return early
   -> tracks consecutiveDoubles; 3 in a row -> sendToHolding(player), skip the move entirely
   -> movePlayer(player, steps)
-       -> wraps position around the 32 tiles, pays 200 on passing Start
+       -> wraps position around the 32 tiles, pays 200 on passing Start,
+          400 if the move lands exactly on it
        -> resolveTile(player)
             -> branches on tile type:
                  property/transit/utility -> open awaitBuy, or charge rent if owned by someone else
@@ -756,21 +757,26 @@ the next remaining active player automatically becomes host.
   picking an amount faster and structurally prevents ever submitting an
   offer the server would reject as unaffordable, since the slider simply
   can't be dragged past what the relevant player has.
-- `components/Auction.jsx` — rendered above `Trade` in the `Hud`, same
-  gating (started, no winner). Lists every entry in `state.auctions`,
-  **not turn-gated** — any active player can bid or pass on any open
-  auction regardless of whose turn it is, since that's the whole point of
-  an auction. Each card shows the tile, current high bid/bidder (or "No
-  bids yet"), an `AuctionCountdown` (same ticks-every-second-purely-for
-  -display pattern as `TurnCountdown`) derived from `auction.deadline`,
-  turning urgent-red in the last 3 seconds — purely informational, the
-  server's own timer is what actually closes it — and either three
-  increment buttons (`+$1`/`+$10`/`+$100`, each immediately submitting a
-  bid of *the current highest bid plus that amount* with no separate
-  confirm step — replaced a typed-amount-plus-"Bid"-button pair so a live
-  bidding war can move at one-click-per-raise speed) and a Pass button, or
-  "You passed on this auction" if `myId` is already in that auction's
-  `passedIds`.
+- `components/AuctionModal.jsx` — mounted unconditionally in `App.jsx`,
+  self-gating on whether any auction is live. Lists every entry in
+  `state.auctions`, **not turn-gated** — any active player can bid on any
+  open auction regardless of whose turn it is, since that's the whole point
+  of an auction. Each card shows the tile, current high bid/bidder (or "No
+  bids yet"), an `AuctionTimer` (same ticks-every-second-purely-for-display
+  pattern as `TurnCountdown`) derived from `auction.deadline`, turning
+  urgent-red in the last 3 seconds — purely informational, the server's own
+  timer is what actually closes it — and three increment buttons
+  (`+$1`/`+$10`/`+$100`, each immediately submitting a bid of *the current
+  highest bid plus that amount* with no separate confirm step — replaced a
+  typed-amount-plus-"Bid"-button pair so a live bidding war can move at
+  one-click-per-raise speed). No manual Pass button in the UI anymore —
+  `passAuction` is still a real server event, but the only thing that fires
+  it now is a bankrupt/kicked player's bid getting voided (see
+  `clearAuctionBidsFrom`), so the unanimous-pass early-resolve path can
+  still trigger, just never from a player's own deliberate click; a player
+  who doesn't want the tile just doesn't bid and waits for the deadline to
+  pass. Shows "You passed on this auction" if `myId` is already in that
+  auction's `passedIds` (only reachable via that bankruptcy/kick path now).
 
 ## 4. Wire protocol (Socket.io events)
 
@@ -931,6 +937,15 @@ grows much larger or tick rate increases.
   would have landed them on (no rent, no card draw, no passing-Start
   bonus). This matches the convention that speeding catches you
   immediately, not after one more move.
+- **Landing exactly on Start pays double the pass-through bonus** (400 vs.
+  200) — `movePlayer` distinguishes `next === 0` (landed on it) from
+  `next < prev` more generally (passed over it) rather than paying the same
+  flat amount either way. This only applies to the dice-roll/relative-move
+  path; the two "Advance to Start Plaza" cards (`s4`/`t5` in `cards.js`)
+  keep their original fixed 200 — card `text`/`effect` are never changed
+  once shipped (see the comment atop `cards.js`), so their payout stays
+  independent of this rule rather than silently drifting from what the
+  card face says.
 - **Declining a purchase always triggers an auction — there's no "just
   walk away" option.** Once a property is up for auction, the only ways
   it resolves are someone winning it or every active player passing (bank

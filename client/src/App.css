@@ -1869,6 +1869,28 @@
   font-weight: 700;
 }
 
+/* "Create a trade" player picker -- icon-led rows (no balance clutter) with
+   a bigger avatar than the rest of the trade modal so the player's face is
+   what reads first, not a wall of text. */
+.trade-player-avatar-lg {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2.5px solid var(--border);
+  flex-shrink: 0;
+}
+.trade-player-avatar-lg.player-avatar--fallback {
+  font-size: 16px;
+}
+
+.trade-player-btn--create {
+  padding: 14px 18px;
+  gap: 14px;
+}
+.trade-player-btn--create .trade-player-btn-name {
+  font-size: 16px;
+}
+
 /* Step 2: trade form */
 .trade-form-header {
   display: flex;
@@ -2296,14 +2318,28 @@ select {
   flex-shrink: 0;
 }
 
+.open-trades-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
 .open-trades-title {
-  display: block;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 1.5px;
   text-transform: uppercase;
   color: var(--text-dim);
-  margin-bottom: 8px;
+}
+
+/* Sizing tweak only -- color/shape/shadow now come from the shared
+   button.primary banner treatment (index.css). */
+.open-trades-create-btn {
+  font-size: 12px;
+  letter-spacing: 1px;
+  padding: 7px 14px;
 }
 
 .open-trades-empty {
@@ -2322,7 +2358,7 @@ select {
 .open-trade-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
   text-align: left;
   background: var(--panel-2);
@@ -2339,41 +2375,32 @@ select {
   box-shadow: 2px 2px 0 var(--border);
 }
 
-.open-trade-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 1.5px solid var(--border);
-  flex-shrink: 0;
+/* Incoming offers glow in the sending player's own color, same convention
+   as the board token's active-turn glow (--c, color-mix against transparent)
+   instead of a single generic "you have mail" color. */
+.open-trade-row.incoming {
+  border-color: var(--c, var(--accent));
+  animation: open-trade-glow 1.8s ease-in-out infinite;
+}
+@keyframes open-trade-glow {
+  0%, 100% { box-shadow: 0 0 6px color-mix(in srgb, var(--c, var(--accent)) 40%, transparent); }
+  50%      { box-shadow: 0 0 14px color-mix(in srgb, var(--c, var(--accent)) 75%, transparent); }
 }
 
 .open-trade-name {
   font-size: 12px;
   font-weight: 700;
   color: var(--text);
-  min-width: 0;
-  flex: 1;
+  max-width: 88px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.open-trade-status {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  background: var(--panel);
-  border: 1px solid var(--border-light);
-  border-radius: 4px;
-  padding: 2px 6px;
+.open-trade-arrow {
   flex-shrink: 0;
-}
-.open-trade-status.incoming {
-  color: var(--accent-ink);
-  background: var(--accent);
-  border-color: var(--border);
+  color: var(--text-dim);
+  font-size: 12px;
 }
 
 /* ── GAME LOG (right sidebar, below Open Trades) ─────────────── */
@@ -2515,43 +2542,6 @@ select {
   box-shadow: 4px 4px 0 var(--border);
 }
 
-.panel-trade-btn {
-  width: 100%;
-  padding: 10px 16px;
-  background: var(--panel-2);
-  border: 2.5px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  position: relative;
-  box-shadow: 3px 3px 0 var(--border);
-  transition: transform 0.08s ease, box-shadow 0.08s ease, background 0.15s;
-}
-.panel-trade-btn:hover { background: rgba(255,255,255,0.08); }
-.panel-trade-btn:active { transform: translate(1px, 1px); box-shadow: 2px 2px 0 var(--border); }
-
-.panel-trade-badge {
-  background: #e74c3c;
-  color: #fff;
-  font-size: 9px;
-  min-width: 16px;
-  height: 16px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-  border: 1.5px solid var(--border);
-}
-
 .panel-start-btn {
   width: 100%;
   padding: 11px 16px;
@@ -2594,6 +2584,25 @@ select {
   color: var(--text-dim);
 }
 
+.panel-sort-btn {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  background: var(--panel-2);
+  color: var(--text-dim);
+  border: 1.5px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.panel-sort-btn:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+
 /* Player rows */
 .panel-player-list {
   display: flex;
@@ -2616,14 +2625,14 @@ select {
    a pulsing gold glow instead of a static box-shadow so it stays noticeable
    without needing a dedicated header. */
 .panel-player-row.current-turn {
-  background: rgba(201,150,10,0.16);
-  border-color: var(--accent);
+  background: color-mix(in srgb, var(--c, var(--accent)) 16%, transparent);
+  border-color: var(--c, var(--accent));
   animation: current-turn-glow 1.8s ease-in-out infinite;
 }
 
 @keyframes current-turn-glow {
-  0%, 100% { box-shadow: 0 0 10px rgba(201,150,10,0.35), 0 0 0 1px rgba(201,150,10,0.25); }
-  50%      { box-shadow: 0 0 20px rgba(201,150,10,0.7), 0 0 0 1px rgba(201,150,10,0.45); }
+  0%, 100% { box-shadow: 0 0 10px color-mix(in srgb, var(--c, var(--accent)) 35%, transparent), 0 0 0 1px color-mix(in srgb, var(--c, var(--accent)) 25%, transparent); }
+  50%      { box-shadow: 0 0 20px color-mix(in srgb, var(--c, var(--accent)) 70%, transparent), 0 0 0 1px color-mix(in srgb, var(--c, var(--accent)) 45%, transparent); }
 }
 .panel-player-row.bankrupt { opacity: 0.45; }
 .panel-player-row.left    { opacity: 0.35; }
@@ -2708,6 +2717,7 @@ select {
 .panel-turn-countdown.urgent { color: #c0392b; }
 
 .panel-player-balance {
+  position: relative;
   font-size: 13.5px;
   font-weight: 700;
   font-family: "Arvo", Georgia, serif;
@@ -2717,6 +2727,35 @@ select {
   border-radius: 6px;
   padding: 2px 7px;
   flex-shrink: 0;
+}
+
+/* One-shot "+X"/"-X" popup, purely CSS-driven (opacity keyframes) --
+   removes itself via onAnimationEnd in PlayersPanel.jsx once the fade
+   finishes, so JS never needs a matching setTimeout duration to stay in
+   sync with. */
+.balance-flash {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 4px;
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: balance-flash-fade 1.6s ease-out forwards;
+}
+/* Brighter/more saturated than --good/--danger on purpose -- those are
+   muted to sit quietly in badges and buttons, but a floating toast needs
+   to actually pop against the parchment background. */
+.balance-flash.positive { color: #2ecc71; }
+.balance-flash.negative { color: #e74c3c; }
+
+@keyframes balance-flash-fade {
+  0%   { opacity: 0; }
+  15%  { opacity: 1; }
+  75%  { opacity: 1; }
+  100% { opacity: 0; }
 }
 [data-theme="dark"] .panel-player-balance {
   color: #d4c860;

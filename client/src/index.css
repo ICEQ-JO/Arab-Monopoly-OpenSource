@@ -93,9 +93,30 @@ button:disabled {
   box-shadow: none;
 }
 
+/* Same flat red/black banner treatment as the board's roll button
+   (.cv2-roll-btn) and the lobby's Create/Join buttons (.lobby-btn-primary),
+   so every "do the main thing" button across modals reads as the same
+   primary action instead of a different style per screen. */
 button.primary {
-  background: var(--accent);
-  color: var(--accent-ink);
+  font-family: Georgia, "Times New Roman", "Amiri", serif;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  border-radius: 0;
+  border: 3px solid #111;
+  background: #cc1111;
+  color: #fff8e7;
+  text-shadow: 1px 1px 0 #7a0000;
+  box-shadow: 3px 4px 0 #7a0000;
+}
+button.primary:hover:not(:disabled) {
+  filter: none;
+  transform: translateY(-1px);
+  box-shadow: 3px 5px 0 #7a0000;
+}
+button.primary:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 1px 2px 0 #7a0000;
 }
 
 button.danger {

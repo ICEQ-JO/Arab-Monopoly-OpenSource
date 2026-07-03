@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { socket } from "../socket";
+import { renderLogEntry } from "../logEntry";
 import { IconClock } from "./icons";
+import PlayerAvatar from "./PlayerAvatar";
 import PropertyCardDetail from "./PropertyCardDetail";
 import TransitCardDetail from "./TransitCardDetail";
 
@@ -50,10 +52,6 @@ function AuctionCard({ auction, board, players, myId }) {
     });
   }
 
-  function pass() {
-    socket.emit("passAuction", { auctionId: auction.id });
-  }
-
   return (
     <div className="auction-layout">
       <div className="auction-info-col">
@@ -65,7 +63,11 @@ function AuctionCard({ auction, board, players, myId }) {
 
         <div className="auction-highbid">
           {highBidder ? (
-            <>High bid <strong>${auction.highestBid}</strong> by {highBidder.id === myId ? "you" : highBidder.name}</>
+            <>
+              High bid <strong>${auction.highestBid}</strong> by{" "}
+              <PlayerAvatar player={highBidder} sizeClass="log-avatar" />{" "}
+              {highBidder.id === myId ? "you" : highBidder.name}
+            </>
           ) : (
             "No bids yet"
           )}
@@ -85,7 +87,6 @@ function AuctionCard({ auction, board, players, myId }) {
                 +${inc}
               </button>
             ))}
-            <button onClick={pass}>Pass</button>
           </div>
         )}
 
@@ -95,7 +96,7 @@ function AuctionCard({ auction, board, players, myId }) {
           {auction.log.length === 0 ? (
             <p className="auction-log-empty">No bids yet -- be the first.</p>
           ) : (
-            auction.log.map((entry, i) => <p key={i}>{entry}</p>)
+            auction.log.map((entry, i) => <p key={i}>{renderLogEntry(entry, players, i)}</p>)
           )}
         </div>
       </div>

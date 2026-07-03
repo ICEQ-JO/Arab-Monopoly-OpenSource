@@ -9,6 +9,83 @@ in the same pass.
 
 ---
 
+## Pass 33 — 2026-07-04 — Trades panel redesign, banner-style primary buttons, Start-tile double bonus, balance-change flash
+
+**Goal:** a grab-bag "polish" session covering the right-sidebar trades UI,
+button consistency across modals, one new gameplay rule (landing exactly on
+Start), and a UI responsiveness request for balance changes.
+
+**What was done (Trades panel):**
+- Merged the old separate "⇄ Trade" trigger button (bottom of
+  `PlayersPanel`) and the "Open Trades" box into one "Trades" panel
+  (`OpenTrades.jsx`) with a header row (title + "+ Create" button) and a
+  list of minimal avatar-only rows (dropped the status badge/countdown
+  clutter) that glow in the sender's own color when incoming (`--c` custom
+  property + `color-mix`, same convention as the board token's active-turn
+  glow).
+- `TradeModal.jsx` gained an `initialScreen` prop and a new `"create"`
+  screen type: clicking "+ Create" now goes straight to an icon-focused
+  player picker (bigger avatar, no balance clutter) instead of the old
+  combined "open trades + pick a player" menu. Clicking a trade row in the
+  sidebar now opens straight to that trade's own `"view"` screen instead of
+  the intermediate menu. Successfully sending/countering an offer now
+  closes the modal instead of dropping back into an internal screen, since
+  the sidebar already shows the new/updated trade.
+- Fixed a pre-existing header-title bug where "view" and "counter" screens
+  both said "Propose Trade".
+
+**What was done (buttons):**
+- `button.primary` (`index.css`) is now the same flat red/black banner
+  treatment as the board's roll button and the lobby's Create/Join
+  buttons, so every primary action across modals (Send Offer, Accept,
+  auction bids, non-danger confirm dialogs) reads as one consistent style
+  instead of the old plain gold `--accent` fill.
+- Removed the Auction modal's manual "Pass" button per user request --
+  `passAuction` is still a real server event, but now only fires
+  automatically (a bankrupt/kicked player's bid getting voided), never from
+  a deliberate click; documented the behavior change in `systemDesign.md`.
+
+**What was done (gameplay -- landing exactly on Start pays double):**
+- `Room.movePlayer` now distinguishes landing exactly on tile 0
+  (`next === 0`) from merely passing over it (`next < prev` more
+  generally) -- 400 coins vs. the usual 200. Only applies to the
+  dice-roll/relative-move path; the two "Advance to Start Plaza" cards
+  (`s4`/`t5`) keep their original flat 200, since `cards.js` has a standing
+  instruction to never change a shipped card's `effect` (id/text/effect are
+  load-bearing for `cardMove.test.js`'s exact-text assertions).
+- Added `server/test/movement.test.js` (landing exactly on Start pays 400;
+  passing over it without landing still pays 200).
+
+**What was done (balance-change flash):**
+- `PlayersPanel.jsx` tracks each player's previous balance in a ref and
+  diffs it against the latest `state.players` on every update; a change
+  renders a one-shot "+X"/"-X" popup (green/red, reusing the existing
+  `--good`/`--danger` vars) under that player's balance chip that fades in
+  and out via a pure CSS animation, removing itself via `onAnimationEnd`
+  rather than a second JS timeout that would need to stay in sync with the
+  CSS duration.
+
+**Why these calls:** the button/trades work was iterative, user-driven
+visual feedback across several small round trips rather than one upfront
+plan; the Start-tile change specifically avoided touching `cards.js`'s two
+Start-related cards because a card that still visibly reads "collect 200
+coins" while actually paying 400 would be a worse bug than the two payouts
+staying inconsistent with each other.
+
+**Known gaps left for later:** the old, unused `client/src/components/Trade.jsx`
+(superseded by `TradeModal.jsx` a while back; confirmed unimported anywhere
+in the client) is still sitting in the tree -- not touched this pass since
+it wasn't part of what was asked, but worth deleting in a cleanup pass.
+
+**State at end of pass:** client `vite build` + `oxlint` clean throughout;
+server `npm test` 56/56 (including the 2 new movement tests). Not visually
+verified by the assistant per [[feedback-verification-approach]] -- user
+confirmed the trades panel/button visuals via screenshots through the
+session; the Start-tile bonus and balance-flash animation are new this
+entry and still need a look.
+
+---
+
 ## Pass 32 — 2026-07-04 — systemDesign.md: purge the fictional character-selection system
 
 **Goal:** user flagged that `createRoom`/`joinRoom` are documented as
