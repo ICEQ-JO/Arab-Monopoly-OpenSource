@@ -541,10 +541,13 @@ state) that's rebuilt from disk on startup before the server starts
 accepting connections.
 
 **Identity model (decoupled from `socket.id`):** a player's stable identity
-is a server-generated `playerId` (nanoid), not their socket id. Two
+is a server-generated `playerId` (nanoid), not their socket id. Three
 module-level maps translate between them per connection:
 - `socketToRoom: Map<socket.id, roomCode>`
 - `socketToPlayer: Map<socket.id, playerId>`
+- `playerToSocket: Map<playerId, socket.id>` — the reverse direction,
+  tracking which socket is *currently* the player's active one (see the
+  stale-disconnect guard below).
 
 `createRoom`/`joinRoom` mint a fresh `{ playerId, token }` pair and return
 both in the ack — `token` is a write-once secret the client holds onto
@@ -584,6 +587,21 @@ looks at `room.started`:
 - **started** → `room.startGracePeriod(playerId)` (§2.3) — *not* an
   immediate kick. The seat is only actually forfeited if the 20-second
   window lapses without a successful `rejoinRoom`.
+
+Before either branch runs, the handler checks `playerToSocket.get(playerId)
+=== socket.id` and bails out entirely if it doesn't match. This guards
+against a stale-socket race: `socket.io`'s server-side disconnect detection
+for a *silent* network drop (as opposed to a clean close) doesn't fire until
+its ping-timeout lapses, which can take longer than a quick page refresh. If
+the client already reconnected on a new socket and successfully
+`rejoinRoom`'d before the old socket's own `disconnect` event finally
+arrives, that event belongs to a connection the player has already moved on
+from — without this guard it would still arm a fresh grace-period timer (or
+even `removePlayer`) against a player who is actively mid-game on a
+different socket right now, silently kicking them later for no visible
+reason. `bindSocket` keeps `playerToSocket` pointed at whichever socket most
+recently bound that `playerId` (create/join/rejoin all call it); `leaveRoom`
+clears its own entry on the way out.
 
 **Reconnect (`rejoinRoom` event):** client sends `{ code, playerId,
 token }`. The server validates the token via `room.verifyToken`, rejects

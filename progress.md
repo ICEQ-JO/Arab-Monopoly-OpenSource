@@ -9,6 +9,54 @@ in the same pass.
 
 ---
 
+## Pass 37 — 2026-07-04 — Fix stale-disconnect race kicking players who already reconnected
+
+**Goal:** user reported that on Render (not reproducible locally), getting
+disconnected, refreshing, and playing a turn still eventually got them
+removed from the game as if they'd never reconnected.
+
+**Root cause:** the `disconnect` handler in `server/src/index.js` armed
+`room.startGracePeriod(playerId)` (or `removePlayer` pre-start)
+unconditionally off the disconnecting socket's own captured `playerId`,
+with nothing checking whether that socket was still the player's *current*
+one. `socket.io`'s server-side disconnect detection for a silent network
+drop (as opposed to a clean close) doesn't fire until its ping-timeout
+lapses — long enough that a page refresh can land a brand-new socket and
+successfully `rejoinRoom` *before* the old socket's own stale `disconnect`
+event finally arrives. That stale event then re-armed a fresh 20-second
+grace timer (or worse, `removePlayer`) against a player who was actively
+mid-game on the new socket, kicking them later with no visible cause —
+exactly the reported symptom. Local testing never hit this because
+loopback disconnects are almost always clean closes, which socket.io
+detects immediately.
+
+**What was done:**
+- `server/src/index.js`: added `playerToSocket: Map<playerId, socket.id>`,
+  tracking which socket is currently "the" active one for each player.
+  `bindSocket` (shared by `createRoom`/`joinRoom`/`rejoinRoom`) updates it
+  on every bind. The `disconnect` handler now bails out immediately if
+  `playerToSocket.get(playerId) !== socket.id` — i.e. this socket has
+  already been superseded by a newer one — before touching any grace-period
+  or removal logic. `leaveRoom` also clears its own entry.
+- `systemDesign.md` §2.4: documented the new `playerToSocket` map and the
+  stale-disconnect guard alongside the existing disconnect/grace-window
+  description.
+
+**Why this call:** fixing this at the socket-identity layer (ignore stale
+disconnects entirely) rather than, say, lengthening the grace window just
+papers over the race without closing it — a slow enough Render round trip
+could still exceed any fixed window. Tracking the currently-bound socket
+per player closes the race outright regardless of timing.
+
+**State at end of pass:** server `npm test` 59/59 (no test changes — this
+is socket-wiring in `index.js`, not `Room.js` game logic, so nothing in the
+existing suite exercises it directly). Not visually verified by the
+assistant per [[feedback-verification-approach]] — this specifically needs
+a real Render deploy + an actual network-drop-then-refresh to confirm,
+which isn't reproducible locally (see root cause above).
+
+---
+
 ## Pass 36 — 2026-07-04 — Trade modal polish, close-on-resolve, dev-tool cleanup
 
 **Goal:** a handful of follow-ups to the Pass 35 trade-picker remake, plus

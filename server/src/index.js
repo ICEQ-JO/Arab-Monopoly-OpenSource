@@ -36,6 +36,10 @@ const io = new Server(httpServer, {
 const rooms = new Map();
 const socketToRoom = new Map();
 const socketToPlayer = new Map();
+// playerId -> the socket.id currently representing them. Lets a socket's
+// disconnect handler tell whether it's still the player's active connection
+// or a stale one already superseded by a rejoin (see the disconnect handler).
+const playerToSocket = new Map();
 
 // Restore any rooms that were active when the server last shut down. A bad/missing
 // file just means an empty object -- nothing to restore, normal cold start.
@@ -69,6 +73,7 @@ function bindSocket(socket, roomCode, playerId) {
   socket.join(roomCode);
   socketToRoom.set(socket.id, roomCode);
   socketToPlayer.set(socket.id, playerId);
+  playerToSocket.set(playerId, socket.id);
 }
 
 io.on("connection", (socket) => {
@@ -123,6 +128,7 @@ io.on("connection", (socket) => {
     socket.leave(room.code);
     socketToRoom.delete(socket.id);
     socketToPlayer.delete(socket.id);
+    playerToSocket.delete(playerId);
     cleanupIfDone(room);
   });
 
@@ -334,6 +340,13 @@ io.on("connection", (socket) => {
     socketToRoom.delete(socket.id);
     socketToPlayer.delete(socket.id);
     if (!code) return;
+    // A silent network drop can leave the server unaware of the old socket's
+    // death until socket.io's ping-timeout lapses -- long enough for a page
+    // refresh to already land a brand-new socket and rejoin first. If that
+    // happened, this "disconnect" belongs to a socket the player has since
+    // moved on from, so it must not forfeit the seat they're actively using.
+    if (playerToSocket.get(playerId) !== socket.id) return;
+    playerToSocket.delete(playerId);
     const room = rooms.get(code);
     if (!room) return;
     if (room.started) {
