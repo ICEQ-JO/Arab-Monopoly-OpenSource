@@ -98,6 +98,12 @@ button.primary {
   color: var(--accent-ink);
 }
 
+button.danger {
+  background: var(--danger);
+  color: #fff3e8;
+  border-color: var(--danger);
+}
+
 input {
   font: 14px/1.3 "Arvo", Georgia, serif;
   padding: 9px 10px;

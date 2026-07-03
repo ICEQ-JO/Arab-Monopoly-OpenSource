@@ -32,7 +32,9 @@ display results.
   position). Each tile has a `type` from `TILE_TYPES` (`start`, `property`,
   `transit`, `utility`, `surprise`, `treasure`, `tax`, `rest`, `holding`,
   `go_to_holding`) plus type-specific fields (`price`, `rent` table, `group`,
-  `housePrice`, `multiplier`, `amount`).
+  `housePrice`, `multiplier`, `amount`). The `holding` tile may also carry a
+  `visitingLabel` — decorative-only text the client splits across the
+  Holding tile's outer "just visiting" frame; not read by any server logic.
 - Property `rent` arrays are `[level0..level5]` — level 0 = base rent
   (unimproved), levels 1–4 = houses, level 5 = hotel.
 - `propertiesByGroup(group)` — helper used to check monopoly/full-group
@@ -66,10 +68,13 @@ One `Room` instance per active game (keyed by room code).
   socket — see §2.4. `token` is a private secret (stripped before
   `toState()` ever broadcasts it) that authorizes reclaiming a seat within
   the disconnect grace window — see "Disconnect grace window" below.
-  `left` is set by `kickPlayer` (disconnect-after-grace-expires, manual
-  leave, or turn-timeout) and, like `bankrupt`, permanently removes the
-  player from the active rotation while keeping them visible in the player
-  list. `connected` and `graceTimer` (also stripped from `toState()`,
+  `left` is set by `kickPlayer` (disconnect-after-grace-expires or a manual
+  leave) and, like `bankrupt`, permanently removes the player from the
+  active rotation while keeping them visible in the player list. A turn
+  timeout does *not* set `left` -- see "Turn timer" below; it only forfeits
+  the seat if the player was also in debt (the same bankruptcy path a
+  voluntary End Turn goes through). `connected` and `graceTimer` (also
+  stripped from `toState()`,
   since it's a raw `setTimeout` handle, not JSON-safe) track an *in-progress*
   disconnect that hasn't yet become a kick.
 - `ownership{}` — `tileId -> { ownerId, houses }` (sparse; only owned tiles
@@ -264,18 +269,20 @@ one. Fixed by tracking two pieces of room-level state, both reset to
   above/below) — a player in the red has a real window to fix it before
   anyone actually enforces the rule. `finishTurn(player)` is the one place
   that enforcement happens: `if (player.balance < 0) this.checkBankruptcy
-  (player); if (!this.winnerId) this.endTurn();` — called from both
-  `playerEndTurn` (the normal "End turn" button) and the stuck-in-Holding
-  -Pen auto-end path inside `rollDice` (the other way a turn can end
-  without an explicit `endTurn` click). This means a player whose balance
+  (player); if (!this.winnerId) this.endTurn();` — called from
+  `playerEndTurn` (the normal "End turn" button), the stuck-in-Holding-Pen
+  auto-end path inside `rollDice`, and `handleTurnTimeout` (see "Turn
+  timer" below) — three ways a turn can end without an explicit,
+  successful `endTurn` click. This means a player whose balance
   went negative because of *someone else's* turn (e.g. a `payEachPlayer`/
   `collectFromEachPlayer` card effect landing on them) isn't bankrupted
   until *their own* next turn ends — they get that entire gap, even though
   it wasn't their turn that caused the debt. Deliberate, not an oversight:
   see the invariant below.
-- `kickPlayer(playerId, reasonLabel)` is the single exit path for an
-  expired disconnect grace window, manual leaves, *and* turn-timeouts (see
-  below): clears any pending `graceTimer` for that player, releases
+- `kickPlayer(playerId, reasonLabel)` is the exit path for an expired
+  disconnect grace window and manual leaves (turn-timeouts go through
+  `handleTurnTimeout`/`finishTurn` instead -- see "Turn timer" below, not
+  this method): clears any pending `graceTimer` for that player, releases
   properties back to the bank, sets `left: true`, clears a `pendingAction`
   that belonged to them, clears any `trades` they're party to (see
   "Trading" below), logs `reasonLabel`, calls `checkWinner()`, and — only
@@ -322,8 +329,14 @@ before anyone's picked; it's never shown once `start()` runs.
 *entire* turn — covering rolling, any buy/decline decision, and building —
 regardless of how many sub-actions happen within it (e.g. doubles re-rolls
 don't reset the clock). If the timer fires before the turn ends naturally,
-the server kicks that player exactly as if a disconnect grace window had
-expired, then advances the turn. This is enforced **server-side only**:
+`handleTurnTimeout(playerId)` runs — the same `finishTurn` path a
+player-initiated "End turn" click uses, which forces bankruptcy first only
+if they're still in debt, then advances the turn. Unlike a disconnect
+grace-window expiry, running out of time does **not** call `kickPlayer` —
+a merely-idle (but still connected) player keeps their seat and
+properties, and just gets skipped; only being *both* idle and in debt when
+the clock runs out costs them anything. This is enforced **server-side
+only**:
 the `turnDeadline` sent to clients is purely informational (for a
 countdown display) — a player can't extend their time by tampering with
 their own clock or socket traffic, since the authoritative `setTimeout`
@@ -463,7 +476,7 @@ active player (including whoever just declined).
   `cleanupIfDone` in `index.js`) sweeps any remaining timers when a room
   is deleted, mirroring `clearTurnTimer`'s role for the turn timer.
 - **Several auctions can be open at once.** Each gets its own `id` rather
-  than the room holding one auction slot — e.g. a turn-timeout kick mid
+  than the room holding one auction slot — e.g. a turn timing out mid
   -auction hands the turn to a new player who could immediately land on a
   *different* unowned tile and decline that one too, before the first
   auction has closed. Treating auctions as an array sidesteps that
@@ -829,7 +842,7 @@ the next remaining active player automatically becomes host.
   jailedPlayerId: string | null,
   jailFromTileId: number | null,  // tile the player was standing on the instant sendToHolding fired
   canRollAgain: boolean,  // client only shows "Roll dice" when true
-  lastCard: { deck, text } | null,
+  lastCard: { deck, text, playerId, effectType } | null,  // effectType (the drawn card's effect.type) lets the client single out specific cards for a custom reveal design, e.g. "getOutFree" -> the Wasta card
   pendingAction: {...} | null,
   turnDeadline: <epoch ms> | null,  // for the client's countdown display only
   trades: [...],         // see §2.3 "Trading"
@@ -950,7 +963,7 @@ grows much larger or tick rate increases.
   bidding itself is open to everyone else regardless of turn order, same
   as trading.
 - **Multiple auctions can be open simultaneously** (`auctions[]`, not a
-  single slot) precisely because a turn-timeout kick mid-auction can hand
+  single slot) precisely because a turn timing out mid-auction can hand
   control to a new current player who triggers a second one before the
   first resolves. Modeling this as an array sidesteps having to define
   queueing/rejection behavior for a case that's rare but real.

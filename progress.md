@@ -9,6 +9,506 @@ in the same pass.
 
 ---
 
+## Pass 30 — 2026-07-04 — Bankrupt players get sent back to the join screen
+
+**Goal:** a bankrupt player stayed stuck on the board looking at a stale
+End Turn button and the "You're $X in debt" warning forever — confirmed
+via a screenshot where the game had already ended (`winnerId` set, a
+"h wins!" banner showing) but the bankrupt loser's own client still showed
+the interactive turn controls. Root cause: `finishTurn` only calls
+`endTurn()` (which is what actually advances `turnIndex` off the
+now-bankrupt player) `if (!this.winnerId)` — but going bankrupt is often
+exactly what *sets* `winnerId` (the last-player-standing case), so
+`turnIndex` never moves off them and their own client kept evaluating
+`isMyTurn` as true against action-zone logic that never accounted for
+`me.bankrupt` at all.
+
+**What was done:**
+- `App.jsx`: new effect watching `state.players` for the local player's
+  own `bankrupt` flag -- the moment it's true, calls the existing
+  `handleLeave()` (same function the Leave button now confirms before
+  calling, from the previous pass), returning them to the join/Lobby
+  screen automatically. `handleLeave`'s `leaveRoom` emit is a harmless
+  no-op server-side for an already-bankrupt player (`kickPlayer` bails out
+  immediately if `player.bankrupt` is already true), so this doesn't
+  double-penalize them -- it only clears the local session/view.
+
+**Why this call:** fixing the actual `turnIndex`/`isMyTurn` root cause
+(making `finishTurn` advance the turn even once a winner's declared, or
+teaching every action-zone branch in `BoardClassic.jsx` to also check
+`!me.bankrupt`) would have left a bankrupt player parked on a board they
+have no more actions on regardless -- properties gone, no turn to take,
+nothing left to do there. Redirecting them out entirely (what was asked
+for) is both simpler and the better experience than patching the stale
+button to just... not render.
+
+**State at end of pass:** `vite build`, `oxlint`, and `npm test` (56/56)
+clean. Not visually verified by the assistant per
+[[feedback-verification-approach]] — user to go bankrupt and confirm the
+redirect actually fires (including the specific reported case: bankruptcy
+that immediately ends the game).
+
+---
+
+## Pass 29 — 2026-07-03 — Confirm-before-leave, confirm-before-bankrupt, timeout no longer kicks
+
+**Goal:** three related "don't lose progress to a misclick or a slow
+turn" fixes: (1) clicking Leave had no confirmation at all, (2) a player
+whose per-turn clock ran out was fully kicked from the game (`kickPlayer`
+— seat and properties forfeited) instead of just having their turn
+skipped, and (3) clicking End Turn while in debt silently bankrupted the
+player with no warning, even though the board already shows a passive
+debt-warning message right next to that same button.
+
+**What was done (turn-timeout no longer kicks):**
+- `Room.js`: `startTurnTimer`'s `setTimeout` used to call
+  `kickPlayer(player.id, "ran out of time and was removed from the game")`
+  — full forfeiture, same as a disconnect or a manual leave. Replaced with
+  a new `handleTurnTimeout(playerId)` that instead calls `finishTurn`,
+  the exact same path `playerEndTurn` (a voluntary "End turn" click)
+  already uses: forces bankruptcy first only if the player is still in
+  debt, then advances the turn. A merely-idle-but-still-connected player
+  now just gets skipped and keeps their seat/properties; only being both
+  idle *and* in debt when the clock runs out costs them anything.
+  `handleTurnTimeout` is pulled out as its own method (not inlined in the
+  `setTimeout` callback) specifically so it's callable directly in tests
+  without waiting out the real 4-minute timer.
+- Added `server/test/turnTimer.test.js`: a solvent player timing out keeps
+  their properties/seat and just passes the turn; a player in debt timing
+  out still bankrupts (mirroring the existing `bankruptcy.test.js`
+  coverage for a manual End Turn); a manual `kickPlayer` leave is
+  unaffected (still forfeits everything) — confirms the two paths didn't
+  get tangled together by this change.
+- Updated `systemDesign.md` in several places that documented the old
+  behavior (`left` field description, the "Turn timer" section,
+  `kickPlayer`'s doc entry, `finishTurn`'s call-site list, and two
+  "turn-timeout kick" mentions in the auctions section that were
+  describing the turn advancing, not an actual `kickPlayer` call — reworded
+  to "turn timing out" so they don't misleadingly imply one).
+
+**What was done (confirm before leaving):**
+- New `client/src/components/ConfirmDialog.jsx` — a small reusable "are you
+  sure?" modal, reusing the existing `.trade-modal-overlay`/`.trade-modal`
+  shell (same one `TradeModal`/`AuctionModal` already use) at a narrower
+  width (`.confirm-modal`) rather than inventing a new modal look.
+- Wired into both places a player can leave: `PlayersPanel.jsx`'s in-game
+  "Leave" button (message calls out that properties/seat are forfeited —
+  real stakes mid-game) and `App.jsx`'s pre-game waitroom "Leave Room"
+  button (lower-stakes wording, just needing the room code again). Each
+  manages its own local `confirming*` boolean rather than threading modal
+  state through props.
+- Added `button.danger` to `index.css` (using the already-existing but
+  previously button-unused `--danger` CSS variable) for the destructive
+  "Leave"/confirm actions, alongside the existing `button.primary`.
+
+**What was done (confirm before bankrupting via End Turn):**
+- `BoardClassic.jsx`: the "End Turn" button now checks `me.balance < 0`
+  first — if so, opens a `ConfirmDialog` (stating the exact debt amount and
+  that confirming declares bankruptcy) instead of emitting `endTurn`
+  immediately; only actually emits once confirmed. A `useEffect` resets
+  the dialog's open state whenever `turnIndex` changes, so the *now-fixed*
+  turn-timeout (which can still end this same turn out from under the
+  player while the dialog sits open) can't leave it stuck open — or
+  worse, silently reappearing next time this player's turn comes back
+  around.
+
+**Why these calls:** `finishTurn` (not a new bespoke code path) is what
+both the timeout fix and the manual-end-turn confirmation route through —
+it already encodes the "bankrupt only if still in debt, then advance"
+rule correctly, so reusing it kept both fixes small and automatically
+consistent with each other instead of maintaining two slightly-different
+versions of the same rule.
+
+**State at end of pass:** `vite build`, `oxlint`, and `npm test` (56/56,
++3 new) all clean. Not visually verified by the assistant per
+[[feedback-verification-approach]] — user to click through Leave, an
+in-debt End Turn, and (if patient enough to wait out a real 4-minute
+timer) an actual timeout.
+
+---
+
+## Pass 28 — 2026-07-03 — Rename the Holding Pen's "Use Free Card" button
+
+**Goal:** the in-Holding-Pen turn option to spend a Get Out of Jail Free
+card still said the generic "Use Free Card", not matching the card's own
+"كرت الواسطة"/Wasta branding introduced over the last several passes.
+
+**What was done:**
+- `BoardClassic.jsx`: that button's label changed from "Use Free Card" to
+  "رن عالواسطة" ("call up your connections") — same wasta idiom as the
+  card's own title/body text.
+
+**State at end of pass:** `vite build` clean.
+
+---
+
+## Pass 27 — 2026-07-03 — Per-player token glow, active-turn-only float
+
+**Goal:** two token-animation changes: the active-turn glow was a fixed
+gold color regardless of which player it was, and every token bobbed
+continuously (not just whoever's turn it is), which diluted "whose turn is
+it" as a signal. User also asked to exaggerate the glow itself.
+
+**What was done:**
+- `.cv2-token-inner`'s `cv2-token-bob` animation is no longer unconditional
+  -- moved onto `.cv2-token-inner.cv2-token--active` only (that class is
+  already set per-token by `PlayerToken.jsx`'s `isActiveTurn` prop, no JS
+  change needed). Non-active tokens now sit flush/static on their tile.
+- `cv2-token-glow`'s keyframes switched from a hardcoded
+  `rgba(255,215,0,...)` gold to `color-mix(in srgb, var(--c) N%,
+  transparent)` -- `--c` is the same per-player color variable
+  `PlayerToken` already sets inline for the token's face fill, so the glow
+  now automatically matches whichever player is active. Also widened the
+  blur/spread (10px/4px -> 14px/6px resting, 18px/7px -> 26px/12px peak)
+  and raised the color-mix percentage toward fully opaque at the peak, per
+  the "exaggerate it" ask.
+
+**Why these calls:** reused the existing `--c` custom property rather than
+threading a new prop through PlayerToken -- it's already set on the outer
+`.cv2-token` wrapper and inherits down to `.cv2-token-face` for free.
+`color-mix` (not a second hardcoded `rgba(r,g,b,a)` per color) is the same
+technique `App.css`'s trade chips already use for tinting a CSS-var color,
+so this isn't a new pattern in the codebase.
+
+**State at end of pass:** `vite build` clean. Not visually verified by the
+assistant per [[feedback-verification-approach]] — user to screenshot.
+
+---
+
+## Pass 26 — 2026-07-03 — Dev button to grant the Wasta card on demand
+
+**Goal:** exercising the new Wasta card (reveal design, My Properties
+badge, trade chip) required cycling the whole Treasure deck via the
+existing "Draw Treasure" dev button and hoping it landed on `t6` — tedious
+for repeated visual checks.
+
+**What was done:**
+- `Room.js`: added `debugGrantJailCard(playerId)`, a dev/test-only helper
+  alongside the existing `debugDrawCard`/`debugGrantGroup`. Looks up the
+  real `getOutFree` card from `TREASURE_CARDS` and runs it through the same
+  `applyCardEffect`/`lastCard` wiring `drawCard` already uses, rather than
+  duplicating that logic — stays in sync automatically if the card ever
+  changes.
+- `server/src/index.js`: new `debugGrantJailCard` socket handler, same
+  shape as the existing debug handlers (no server-side dev-flag re-check,
+  same as its neighbors — the client already gates this behind
+  `import.meta.env.DEV`).
+- `DevTools.jsx`: added a third button, "Get Wasta Card", alongside "Draw
+  Surprise"/"Draw Treasure".
+- `.dev-tools` (App.css): added `flex-wrap: wrap` + `max-width: calc(100vw
+  - 20px)` so a third (and any future) button wraps instead of overflowing
+  off narrow viewports — this panel is `position: fixed` in the corner, not
+  inside any scrollable/flexible layout.
+
+**State at end of pass:** `vite build`, `oxlint`, and `npm test` (53/53)
+clean. Not visually verified by the assistant per
+[[feedback-verification-approach]] — user to click the new button and
+screenshot.
+
+---
+
+## Pass 25 — 2026-07-03 — Wasta card identity carried into My Properties and the trade menu
+
+**Goal:** Pass 24 only reskinned the card-reveal moment. Everywhere else a
+held Get Out of Jail Free card shows up (the My Properties panel's kept-
+card badge, and the trade builder/read-only trade view's chip), it still
+showed the old generic look — a pink Surprise "?" badge captioned "Get Out
+of Holding Free" in My Properties, and a plain gold `#c9960a` property-
+style chip captioned "Get Out of Jail Free" in the trade menu. Neither
+matched the new card's own identity.
+
+**What was done:**
+- `MyProperties.jsx`: the kept-card badge now shows `phone-call.png`
+  (same badge art as the reveal card) instead of `SurpriseIcon`, captioned
+  "كرت الواسطة" instead of "Get Out of Holding Free". Its CSS
+  (`.my-properties-kept-card`) recolored from the pink/magenta Surprise
+  accent to the same red (`#c0392b`) family as the reveal card.
+- `TradeModal.jsx`'s `JailCardChip`/`StaticJailCardChip` (used in both the
+  trade builder and the read-only trade view): `--chip-color` changed from
+  gold (`#c9960a`, which read as just another property chip) to the same
+  `#c0392b` red, and the label changed from "Get Out of Jail Free" to
+  "كرت الواسطة". Left the chip's own dot+name shape unchanged (no badge
+  image) — every other chip in that list is a plain colored dot, and
+  swapping just this one for an image would've broken consistency *within*
+  the trade list even while gaining it with the reveal card; color + name
+  was the right amount of change there.
+
+**Why these calls:** color and naming, not shape, are what's carried across
+all three surfaces — each context (a big reveal, a standalone panel badge, 
+a dense chip list) keeps its own appropriate layout, but a player should
+recognize it's the same card everywhere it appears.
+
+**State at end of pass:** `vite build` and `oxlint` clean. Not visually
+verified by the assistant per [[feedback-verification-approach]] — user to
+screenshot both the My Properties panel and the trade menu.
+
+---
+
+## Pass 24 — 2026-07-03 — Wasta card: bespoke design for Get Out of Jail Free
+
+**Goal:** the Get Out of Jail Free card (`t6`, `effect.type: "getOutFree"`
+in the Treasure deck) always rendered through the same generic Surprise/
+Treasure reveal template. User wants it to stand out with its own design
+("كرت الواسطة" / "بس توصل رنلي" + a phone-call icon) while still reading as
+part of the same card family — explored via `/visualize` mockups first
+(three concepts: ticket stub, approval stamp, ID card), landed on the ID
+card, then iterated it to pull in more of the existing card's own
+ornamentation (corner diamonds, inset accent frame, rule divider) before
+building it for real.
+
+**What was done:**
+- `phone-call.png` copied to `client/public/` (same root+public duplicate
+  convention as the other recently-added icons).
+- `Room.js`'s `drawCard`: `lastCard` now also carries `effectType` (the
+  drawn card's `effect.type`) alongside the existing `deck`/`text`/
+  `playerId`. This is what the client uses to single out this one card for
+  a custom face, instead of hardcoding its card id (`t6`) client-side —
+  keeps the id an internal deck-ordering detail, per the existing comment
+  atop `cards.js`.
+- `CardReveal.jsx`: added a `lastCard.effectType === "getOutFree"` branch
+  that renders an entirely different layout — a landscape ID-badge card
+  (`card-reveal--wasta`, own `aspect-ratio`, red accent) instead of the
+  shared portrait one — but reuses the same `card-reveal-frame`/
+  `-corner`/`-rule`/`-label` pieces the Surprise/Treasure cards already use,
+  so it still visibly belongs to the same card family. Title/body text
+  ("كرت الواسطة"/"بس توصل رنلي") are hardcoded constants in this file, not
+  added to `cards.js`'s `text` field — that field stays the plain
+  mechanical description used in the game log line, unrelated to this
+  card's flavor art.
+- Preloaded `phone-call.png` via `new Image()` at module load, same eager-
+  loading pattern used for the corner-tile icons and the player-icon set.
+- `systemDesign.md`: fixed the `lastCard` wire-shape entry (it was already
+  stale, missing `playerId`) and added `effectType`.
+
+**Why these calls:** keying off `effectType` rather than the card's `id`
+decouples the client from `cards.js`'s internal, load-bearing id ordering;
+reusing the existing corner-diamond/frame/rule pieces instead of building
+a fully bespoke set was the whole point of the "iterate to match the lucky
+card's stylization" round — the card needed to look distinct but not
+orphaned from the rest of the deck's visual language.
+
+**State at end of pass:** `vite build`, `oxlint`, and `npm test` (53/53)
+clean. Not visually verified by the assistant per
+[[feedback-verification-approach]] — user to screenshot; this is the first
+time this design has actually been rendered in the app rather than
+mocked up.
+
+---
+
+## Pass 23 — 2026-07-03 — Holding-tile polish: single continuous top label, drop the side text
+
+**Goal:** simplify the "just visiting" frame down to one continuous phrase
+along the top edge only, and change the wording.
+
+**What was done:**
+- `visitingLabel` changed from "الأيام دوارة" to "الدنيا دوارة" in
+  `classic-vintage.js`'s HOLDING tile.
+- `HoldingCornerArt` no longer splits `visitingLabel` into a top word + a
+  rotated side word — the whole phrase now renders as one continuous
+  `<span>` along the top edge. Removed the now-unused rotated-side-text
+  element (and its supporting `.cv2-holding-frame-side`/`-side span` CSS,
+  including the box-rotation-pivot trick from Pass 20, which no longer has
+  anything to rotate).
+- Widened `.cv2-holding-frame-top`'s box to the tile's full width (was
+  centered but narrower) and shrank its font-size clamp slightly so the
+  now-longer two-word phrase comfortably fits on one line at the tile's
+  actual on-screen size.
+
+**State at end of pass:** `vite build` and `npm test` (53/53) clean. Not
+visually verified by the assistant per [[feedback-verification-approach]]
+— user to screenshot.
+
+---
+
+## Pass 22 — 2026-07-03 — Holding-tile polish: icon fills the cell instead of sitting inset in it
+
+**Goal:** the icon still had a visible charcoal margin around it (6% inset
+padding + `object-fit: contain`), leaving the flat background panel visible
+as its own separate layer. User wants the icon art itself to fill/replace
+that background rather than float inside it.
+
+**What was done:**
+- `.cv2-holding-cell-icon`: dropped the `padding: 6%` inset and switched
+  `object-fit: contain` → `cover`. The (inverted, light) captive.png art
+  now fills its whole flex area edge to edge, standing in for the flat
+  charcoal background instead of sitting inset on top of it. The name strip
+  below is unaffected.
+
+**State at end of pass:** `vite build` clean. Not visually verified by the
+assistant per [[feedback-verification-approach]] — user to screenshot.
+
+---
+
+## Pass 21 — 2026-07-03 — Holding-tile polish: drop the plaque background, emphasize the cell name
+
+**Goal:** Pass 20's fix worked (side text renders correctly, cell reads as
+a clear focal point per the user's follow-up screenshot), but the gold
+plaque strip behind "في الحبس مظاليم" looked like a stray sticker against
+the charcoal cell, and the user wants that specific phrase (the tile's
+actual name) to be the emphasized element, not a small caption.
+
+**What was done:**
+- `.cv2-holding-cell-name`: removed the solid `#c9960a` background block and
+  its border entirely. Replaced with gold-leaf-style text (`#f0d488` +
+  a dark `text-shadow` for legibility against the charcoal, no background)
+  so it reads as engraved into the cell door instead of a pasted-on label.
+- Bumped its font-size up (clamp ~7.5–13px, was ~6.5–10px) so it's now
+  sized as the tile's most prominent text, ahead of the small outer
+  "دوارة"/"الأيام" frame labels — reflects that this is the tile's actual
+  name, the frame labels are just flavor text.
+
+**State at end of pass:** `vite build` clean. Not visually verified by the
+assistant per [[feedback-verification-approach]] — user to screenshot.
+
+---
+
+## Pass 20 — 2026-07-03 — Holding-tile visual polish: fix garbled side text, raise cell contrast
+
+**Goal:** Pass 19's split jail tile shipped with two real problems, visible
+in a screenshot the user sent: the vertical "الأيام" side label rendered
+garbled and overflowed past the tile's own edge into the neighboring tile,
+and the cell's icon + overlaid name text were both illegible (icon too
+faint, name stacked directly on top of it). User asked for the tile to
+"stand out and be readable" and picked the "darken the cell, keep the rest
+of the tile cream" direction over a full-corner dark panel or a vintage
+stamp/hazard-stripe treatment.
+
+**What was done:**
+- Root cause of the garbled/overflowing side text: `writing-mode:
+  vertical-rl` was applied directly to the Arabic string. Arabic is
+  cursive/contextually-joined and has no native vertical form, so
+  `vertical-rl` breaks letter joining and can't size its own box
+  predictably -- exactly the failure mode this file's *other* rotated
+  labels (side-tile icon names) already avoid by rotating a normal
+  horizontally-shaped box via `transform: rotate()` instead. Switched
+  `.cv2-holding-frame-side` to the same trick: a fixed-width, full-height
+  flex container centers a plain-text `<span>`, which is then rotated
+  90deg — the rotation pivots on the span's own already-centered layout
+  position, so it lands correctly on the tile's vertical midline
+  regardless of the (pre-rotation) text width.
+- Cell redesigned for contrast: background changed from a pale tan
+  (#e7dfc4, barely distinguishable from the tile's own ivory) to a deep
+  charcoal (#211d18) with an inset shadow, so it reads as a clear focal
+  point against the rest of the cream board at a glance.
+- Removed the CSS `repeating-linear-gradient` bar pattern entirely --
+  `captive.png` already draws bars baked into the art itself, so the CSS
+  bars were a second, misaligned set of lines fighting the icon for
+  attention, part of what made it unreadable.
+- The icon is a solid-black silhouette, which would vanish against the new
+  charcoal background -- added `filter: invert(1) brightness(1.6)` so it
+  renders light/cream instead, and raised opacity to make it the dominant
+  element again (previously dropped to 0.4 specifically so overlaid text
+  wouldn't disappear underneath it).
+- Name no longer overlays the icon at all: `.cv2-holding-cell` is now a
+  flex column, icon on top (`flex: 1`), name in a `flex-shrink: 0` brass-
+  colored plaque strip along the bottom (`#c9960a`, reusing the same gold
+  already used for `.cv2-tile-selected`'s outline elsewhere) -- ties into
+  the existing accent palette instead of inventing a new color, and reads
+  as a "cell nameplate."
+
+**Why these calls:** picked "darken the cell only" per the user's explicit
+choice over a full-corner dark panel (would've made this corner look
+inconsistent with the other three) or a stamp/hazard-stripe treatment
+(more decorative flair, less of a direct fix to the actual readability
+complaint).
+
+**State at end of pass:** `vite build` and `oxlint` clean (same three
+pre-existing/intentional warnings as before, no new ones). Not visually
+verified by the assistant per [[feedback-verification-approach]] — user to
+screenshot; rotation-pivot positioning in particular is worth a close look
+since it can't be checked without actually rendering it.
+
+---
+
+## Pass 19 — 2026-07-03 — Split jail-tile visual (just visiting vs. in prison)
+
+**Goal:** follow-up to Pass 18's corner icons — user wants the Holding tile
+to mirror a real Monopoly board's split jail cell: an outer "just visiting"
+frame players glide past on their way around the rim, and an inner "in
+prison" cell for players actually jailed there, functionally (not just
+cosmetically) sorted by game state.
+
+**What was done:**
+- `server/src/game/boards/classic-vintage.js`: added a `visitingLabel:
+  "الأيام دوارة"` field to the HOLDING tile — a per-board decorative label,
+  same pattern as `name`/`price`/`group`. Only classic-vintage sets it; the
+  other three boards' HOLDING tiles (English/different-Arabic names) don't,
+  so they keep rendering through the plain corner-icon path unchanged.
+- `BoardClassic.jsx`: added `HoldingCornerArt`, rendered only when `type
+  === "holding" && visitingLabel` is set. Splits `visitingLabel` on its
+  space into a top word (unrotated, along the tile's outward top edge) and
+  a side word (rotated vertical, along the outward right edge) — the outer
+  frame. The inner cell (bottom-left, toward the board's interior) shows
+  the semi-transparent `captive.png` with the tile's own name (`في الحبس
+  مظاليم`) overlaid as text.
+- Token placement: `TokenLayer` now groups occupants of the Holding tile
+  into two sub-stacks instead of one shared stack — `player.inHolding ?
+  "cell" : "frame"` — each offset from the tile's plain center position by
+  a fraction of the corner cell's own size (`cellPct`, derived from the
+  same `RIM_FR`/`INNER_FR` weighting `trackCenters` already uses), toward
+  the tile's outward corner for "frame" and toward the board's interior
+  corner for "cell". Every other tile is unaffected (still one "main"
+  zone, exactly as before).
+- `holdingTileId` and `cellPct` are computed once in the existing
+  `trackCenters` `useMemo` (still keyed on `board.length` alone, per the
+  existing perf note on that memo — recomputing it on every unrelated
+  render was what previously killed in-flight glides) and threaded down to
+  `TokenLayer`.
+
+**Why these calls:** driving the split off `player.inHolding` (already
+authoritative server state, not a client-side guess) means a player merely
+passing over/landing on the tile without being jailed correctly renders in
+the visiting zone, and a jailing (including the existing walk-then-teleport
+jail animation from Pass 17) correctly resolves into the cell zone once the
+token's glide actually reaches the tile — no new server state needed.
+
+**Known gaps left for later:** the other three boards (`eu`, `middle-east`,
+`worldwide`) don't get a `visitingLabel`, so their Holding tiles still show
+the older plain corner-icon layout with no cell/frame split — intentional
+for this pass (only classic-vintage was in scope), but a real gap if those
+boards are ever put back in front of players.
+
+**State at end of pass:** `vite build`, `oxlint`, and `npm test` (53/53)
+all clean. Not visually verified by the assistant per
+[[feedback-verification-approach]] — user to screenshot.
+
+---
+
+## Pass 18 — 2026-07-03 — Corner tile visuals (Start, Holding Pen, Go-to-Holding)
+
+**Goal:** finish the last open to-do item — three of the four corner tiles
+(Start, Holding Pen, Go-to-Holding) had no icon at all, just bare name text,
+while REST already had one (`regeneration.svg`). User supplied three PNGs at
+the repo root (`bow-and-arrow.png`, `captive.png`, `police.png`) to fill the
+gap.
+
+**What was done:**
+- Copied the three PNGs into `client/public/` (same root+public duplicate
+  convention already used for `pig.svg`/`bus.svg`/`regeneration.svg`).
+- `BoardClassic.jsx`: added a `CORNER_ICON_SRC` map (`start` →
+  bow-and-arrow, `holding` → captive, `go_to_holding` → police) and folded
+  it into the existing `hasIcon`/icon-selection logic that REST/TAX/
+  TREASURE/SURPRISE/TRANSIT already used — no new layout path, these three
+  corners now render through the same `cv2-icon-center`/`cv2-tile-icon`
+  machinery.
+- Preloaded the three images with `new Image()` at module load, mirroring
+  the exact pattern `App.jsx` already uses to eagerly fetch player-icon
+  images ahead of the IconPicker — avoids a pop-in the first time a token
+  passes over/renders on these corners.
+
+**Why these calls:** REST already proved corner tiles work fine through the
+generic icon path (no left/right rotation needed since corners never get
+`isLRSide` treatment), so reusing it instead of building corner-specific
+rendering kept this a small, low-risk change.
+
+**Known gaps left for later:** none — this closes the last open to-do item.
+
+**State at end of pass:** `vite build` and `oxlint` clean (two pre-existing
+unrelated hook-dependency warnings only). Not visually verified by the
+assistant per [[feedback-verification-approach]] — user to screenshot.
+
+---
+
 ## Pass 17 — 2026-07-03 — Fix: card-reveal UI, movement/jail animation, jail-card logic, board polish
 
 **Goal:** a long run of small-to-medium UI/UX bug reports and polish

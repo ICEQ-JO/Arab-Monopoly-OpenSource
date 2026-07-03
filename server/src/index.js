@@ -235,6 +235,16 @@ io.on("connection", (socket) => {
     broadcastState(room.code);
   });
 
+  // Dev/test only -- see Room.debugGrantJailCard.
+  socket.on("debugGrantJailCard", (cb) => {
+    const room = getRoom(socket);
+    if (!room) return cb?.({ error: "Room not found" });
+    const result = room.debugGrantJailCard(getPlayerId(socket));
+    if (result.error) return cb?.(result);
+    cb?.({ ok: true });
+    broadcastState(room.code);
+  });
+
   socket.on("buyHouse", ({ tileId }, cb) => {
     const room = getRoom(socket);
     if (!room) return cb?.({ error: "Room not found" });

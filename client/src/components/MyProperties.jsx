@@ -1,6 +1,5 @@
 import PropertyCardDetail from "./PropertyCardDetail";
 import TransitCardDetail from "./TransitCardDetail";
-import { SurpriseIcon } from "./BoardClassic";
 
 // Left-panel grid of the current player's own title-deed cards, two per row
 // with the grid itself scrolling vertically to reveal further pairs -- reuses
@@ -65,11 +64,14 @@ export default function MyProperties({ state, myId }) {
       {/* A drawn "get out free" card is kept, not spent, the moment it's
           drawn -- unlike every other card effect, which resolves and is
           gone -- so unlike the passing card-reveal toast, this needs a
-          persistent reminder the player actually still holds it. */}
+          persistent reminder the player actually still holds it. Same
+          badge art/name as the Wasta card's own reveal design (CardReveal),
+          not the generic Surprise "?" -- this card looks like its own
+          thing everywhere it shows up, not just at the moment it's drawn. */}
       {me.holdingFreeCard && (
         <div className="my-properties-kept-card">
-          <SurpriseIcon />
-          <span>Get Out of Holding Free</span>
+          <img src="/phone-call.png" alt="" />
+          <span>كرت الواسطة</span>
         </div>
       )}
       {owned.length === 0 ? (

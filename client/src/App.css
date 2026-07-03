@@ -762,6 +762,8 @@
   bottom: 10px;
   z-index: 80;
   display: flex;
+  flex-wrap: wrap;
+  max-width: calc(100vw - 20px);
   align-items: center;
   gap: 6px;
   padding: 6px 8px;
@@ -1357,14 +1359,14 @@
   padding: 8px 10px;
   margin-bottom: 10px;
   border-radius: 8px;
-  border: 2px solid #b5126e;
-  background: linear-gradient(180deg, #ffe3f5 0%, #ffc2ea 100%);
-  color: #5a0836;
+  border: 2px solid #c0392b;
+  background: linear-gradient(180deg, #fbdcd4 0%, #f3b6a8 100%);
+  color: #4a170f;
   font-size: 12px;
   font-weight: 700;
   flex-shrink: 0;
 }
-.my-properties-kept-card svg { width: 22px; height: auto; flex-shrink: 0; }
+.my-properties-kept-card img { width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; }
 
 /* At least two cards per row, more as the (now width-flexible) left column
    grows wider -- once more rows arrive than fit, this grid scrolls on its
@@ -1831,6 +1833,23 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+/* Narrower than the default trade/auction modal width -- a two-sentence
+   confirmation doesn't need 680px. */
+.confirm-modal {
+  width: min(380px, 100%);
+}
+
+.confirm-modal-body p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.confirm-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .trade-section-label {

@@ -13,11 +13,16 @@ export default function DevTools() {
     socket.emit("debugDrawCard", { deck });
   }
 
+  function grantJailCard() {
+    socket.emit("debugGrantJailCard");
+  }
+
   return (
     <div className="dev-tools">
       <span className="dev-tools-label">🛠 DEV</span>
       <button className="dev-tools-btn" onClick={() => draw("surprise")}>Draw Surprise</button>
       <button className="dev-tools-btn" onClick={() => draw("treasure")}>Draw Treasure</button>
+      <button className="dev-tools-btn" onClick={grantJailCard}>Get Wasta Card</button>
     </div>
   );
 }

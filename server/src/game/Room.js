@@ -288,9 +288,24 @@ export class Room {
     if (!player) return;
     this.turnDeadline = Date.now() + TURN_TIME_LIMIT_MS;
     this.turnTimer = setTimeout(() => {
-      this.kickPlayer(player.id, "ran out of time and was removed from the game");
+      this.handleTurnTimeout(player.id);
       this.notify?.();
     }, TURN_TIME_LIMIT_MS);
+  }
+
+  // Running out of time just skips the turn (via the same finishTurn path a
+  // voluntary "End turn" click uses -- still forces bankruptcy if they're in
+  // the red, same as ending on purpose). It does NOT forfeit their seat/
+  // properties the way kickPlayer does -- that stays reserved for actual
+  // disconnects (see startGracePeriod above and the server-restart path in
+  // fromSnapshot). Pulled out of startTurnTimer's setTimeout body so
+  // it can be exercised directly in tests without waiting out the real
+  // multi-minute timer.
+  handleTurnTimeout(playerId) {
+    const player = this.playerById(playerId);
+    if (!player) return;
+    this.pushLog(`${player.name} ran out of time -- turn skipped.`);
+    this.finishTurn(player);
   }
 
   clearTurnTimer() {
@@ -483,7 +498,11 @@ export class Room {
     const card = this[deckKey].shift();
     this.pushLog(`${player.name} drew: "${card.text}"`);
     this.applyCardEffect(player, card.effect);
-    this.lastCard = { deck: deckName, text: card.text, playerId: player.id };
+    // effectType lets the client single out specific cards for a custom
+    // reveal design (the Get Out of Jail Free card) without hardcoding a
+    // card id, which the comment atop cards.js already treats as an
+    // internal, load-bearing detail.
+    this.lastCard = { deck: deckName, text: card.text, playerId: player.id, effectType: card.effect.type };
     this.cardSeq += 1;
   }
 
@@ -658,6 +677,24 @@ export class Room {
     if (this.pendingAction) return { error: "Resolve the current action first" };
     if (deckName !== "surprise" && deckName !== "treasure") return { error: "Unknown deck" };
     this.drawCard(player, deckName);
+    return { ok: true };
+  }
+
+  // Dev/test helper only -- grants the Get Out of Jail Free (Wasta) card
+  // directly instead of cycling the whole Treasure deck waiting for it to
+  // come up, so its reveal design and the My Properties/trade-chip badges
+  // can be exercised on demand. Looks up the actual card object rather than
+  // duplicating the getOutFree effect/lastCard wiring that drawCard already
+  // does, so this stays in sync with the real card automatically.
+  debugGrantJailCard(playerId) {
+    const player = this.playerById(playerId);
+    if (!player) return { error: "Player not found" };
+    if (this.pendingAction) return { error: "Resolve the current action first" };
+    const card = TREASURE_CARDS.find((c) => c.effect.type === "getOutFree");
+    this.applyCardEffect(player, card.effect);
+    this.pushLog(`[DEV] ${player.name} was granted a Get Out of Jail Free card for testing.`);
+    this.lastCard = { deck: "treasure", text: card.text, playerId: player.id, effectType: card.effect.type };
+    this.cardSeq += 1;
     return { ok: true };
   }
 

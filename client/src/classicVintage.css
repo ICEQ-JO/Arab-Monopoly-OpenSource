@@ -221,6 +221,84 @@
   font-weight: 900;
 }
 
+/* ---------- Holding corner: "just visiting" frame + "in prison" cell ---------- */
+/* Mirrors the real board's split jail tile. The outer frame text traces the
+   tile's top edge, unrotated, as one continuous phrase -- the "just
+   visiting" path players glide straight across on their way past. The
+   inner cell sits toward the board's interior (bottom-left of the tile),
+   holding the jailed-player art -- see the matching cell/frame token-zone
+   offset in TokenLayer (BoardClassic.jsx). */
+.cv2-holding-corner {
+  position: absolute;
+  inset: 0;
+}
+
+.cv2-holding-frame-top {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  right: 3px;
+  font-family: Georgia, serif;
+  font-weight: 900;
+  font-size: clamp(9px, min(1.55vw, 1.6vh), 15px);
+  color: #3d1a00;
+  letter-spacing: 0.01em;
+  text-align: center;
+  line-height: 1.05;
+}
+
+/* Deep charcoal "iron cell" -- deliberately much darker than the tile's
+   ivory base so it reads as a distinct focal point at a glance, not another
+   pale corner. */
+.cv2-holding-cell {
+  position: absolute;
+  left: 6%;
+  bottom: 6%;
+  width: 64%;
+  height: 64%;
+  border-radius: 5px;
+  border: 1.5px solid #111;
+  overflow: hidden;
+  background: #211d18;
+  box-shadow: inset 0 0 7px rgba(0, 0, 0, 0.65);
+  display: flex;
+  flex-direction: column;
+}
+
+/* captive.png is a solid-black silhouette (prisoner + bars baked into the
+   art itself) -- inverted so it renders light against the cell's dark
+   background instead of vanishing into it. `cover` + no padding lets the
+   art itself fill the whole icon area edge to edge, standing in for a flat
+   background instead of sitting inset inside one. */
+.cv2-holding-cell-icon {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: cover;
+  filter: invert(1) brightness(1.6);
+  opacity: 0.94;
+}
+
+/* Sits in its own strip below the icon (not stacked on top of it), but no
+   solid-color plaque behind it -- a colored block read as a stray sticker
+   against the charcoal cell. Gold-leaf-style text (color + a dark
+   drop-shadow for legibility, no background) reads as engraved into the
+   cell door instead, and is sized up to be the tile's most prominent text
+   -- this is the tile's actual name, more important than the small
+   just-visiting frame labels around it. */
+.cv2-holding-cell-name {
+  flex-shrink: 0;
+  font-family: Georgia, serif;
+  font-weight: 900;
+  font-size: clamp(7.5px, min(1.3vw, 1.35vh), 13px);
+  color: #f0d488;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  letter-spacing: 0.015em;
+  text-align: center;
+  line-height: 1.08;
+  padding: 3px 4px 4px;
+}
+
 /* ---------- Building badge (houses / hotel) ---------- */
 /* Lives directly inside the tile's own color band -- one house icon per
    house built, packed from the tile's outer corner, exactly like a real
@@ -364,10 +442,16 @@
 /* Inner element: carries all animations (bob/floating/celebrate), kept
    separate from the outer stacking transform above so they don't clobber
    each other (an `animation`'s keyframes fully replace `transform`, they
-   don't compose with a sibling static transform on the same element). */
+   don't compose with a sibling static transform on the same element). Only
+   the active-turn token bobs -- everyone else sits flush on the tile, so
+   whoever's turn it is reads clearly at a glance without needing to check
+   anything else. */
 .cv2-token-inner {
   position: absolute;
   inset: 0;
+}
+
+.cv2-token-inner.cv2-token--active {
   animation: cv2-token-bob 2.6s ease-in-out infinite;
   animation-delay: var(--delay, 0s);
 }
@@ -511,9 +595,22 @@
   animation: cv2-token-celebrate-mouth 0.7s ease-out 1;
 }
 
+/* Glows in the token's own player color (--c, set inline by PlayerToken),
+   not a fixed gold -- color-mix blends it against transparent for the
+   fade instead of needing a separate rgba() per player color. Bigger
+   blur/spread than a typical focus-ring glow (14/6 resting, 26/11 at
+   peak) so it's unmistakable at board scale, not just a faint halo. */
 @keyframes cv2-token-glow {
-  0%, 100% { box-shadow: 0 9px 10px rgba(0,0,0,0.45), 0 3px 4px rgba(0,0,0,0.35), 0 0 0 2px rgba(255,255,255,0.9), 0 0 10px 4px rgba(255,215,0,0.65); }
-  50%      { box-shadow: 0 9px 10px rgba(0,0,0,0.45), 0 3px 4px rgba(0,0,0,0.35), 0 0 0 2px rgba(255,255,255,0.9), 0 0 18px 7px rgba(255,215,0,1); }
+  0%, 100% {
+    box-shadow: 0 9px 10px rgba(0,0,0,0.45), 0 3px 4px rgba(0,0,0,0.35),
+      0 0 0 2px rgba(255,255,255,0.9),
+      0 0 14px 6px color-mix(in srgb, var(--c) 75%, transparent);
+  }
+  50% {
+    box-shadow: 0 9px 10px rgba(0,0,0,0.45), 0 3px 4px rgba(0,0,0,0.35),
+      0 0 0 2px rgba(255,255,255,0.9),
+      0 0 26px 12px color-mix(in srgb, var(--c) 100%, transparent);
+  }
 }
 
 .cv2-token--active .cv2-token-face {
@@ -818,6 +915,55 @@
   --reveal-color-soft: #99356f;
   --reveal-color-muted: #7a3057;
   --reveal-rule: #c98aab;
+}
+
+/* ---------- Wasta card (Get Out of Jail Free) ---------- */
+/* Same parchment/black-border/hard-shadow card stock and diamond-corner/
+   rule-divider ornamentation as Surprise/Treasure, but a landscape ID-badge
+   shape instead of the shared portrait layout -- this card sits in a
+   player's hand rather than resolving immediately, so it's deliberately
+   built to read as its own kind of object, not just another lucky-card
+   pull. Own accent color (not gold/pink) reinforces that distinction. */
+.card-reveal--wasta {
+  --reveal-color: #c0392b;
+  --reveal-color-soft: #8f2c1f;
+  --reveal-color-muted: #7a3a2e;
+  --reveal-rule: #c98a7a;
+  width: min(340px, 88vw);
+  aspect-ratio: 300 / 184;
+  padding: 0;
+}
+
+.card-reveal-wasta-content {
+  position: absolute;
+  inset: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-reveal-wasta-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.card-reveal-wasta-badge {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: 2.5px solid #111;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.card-reveal-wasta-body {
+  font-size: 22px;
+  font-weight: 700;
+  color: #000;
+  text-align: center;
+  line-height: 1.35;
 }
 
 @keyframes card-reveal-pop {

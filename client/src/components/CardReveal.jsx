@@ -2,6 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { TreasureIcon, SurpriseIcon } from "./BoardClassic";
 
 const AUTO_DISMISS_MS = 5000;
+const WASTA_TITLE = "كرت الواسطة";
+const WASTA_BODY = "بس توصل رنلي";
+
+// Eagerly fetches the Wasta card's badge art the instant this module loads,
+// same reasoning as the corner-tile icons in BoardClassic.jsx -- decoded
+// and cached well before a player ever actually draws this card.
+const wastaBadgeImg = new Image();
+wastaBadgeImg.src = "/phone-call.png";
 
 // Non-interactive, centered on the board (rendered inside BoardClassic's
 // .cv2-board so it's not accidentally centered on the full viewport, whose
@@ -58,6 +66,42 @@ export default function CardReveal({ state, myId, tokenMoving }) {
   }, [visible]);
 
   if (!visible || !lastCard) return null;
+
+  // The Get Out of Jail Free card gets its own bespoke face (a landscape
+  // ID-badge layout, not the standard portrait one) instead of the generic
+  // deck text -- it's a card a player holds onto rather than one that
+  // resolves immediately, so it's meant to stand out from an ordinary
+  // Surprise/Treasure pull while still sharing the same parchment/diamond-
+  // corner/rule-divider material. `effectType` (not the card's id) is what
+  // singles it out -- see drawCard in Room.js.
+  if (lastCard.effectType === "getOutFree") {
+    return (
+      <div className="card-reveal-overlay">
+        <div className="card-reveal card-reveal--wasta">
+          <div className="card-reveal-frame">
+            <span className="card-reveal-corner card-reveal-corner--tl">◆</span>
+            <span className="card-reveal-corner card-reveal-corner--tr">◆</span>
+            <span className="card-reveal-corner card-reveal-corner--bl">◆</span>
+            <span className="card-reveal-corner card-reveal-corner--br">◆</span>
+          </div>
+          <div className="card-reveal-wasta-content">
+            <span className="card-reveal-label">{WASTA_TITLE}</span>
+            <div className="card-reveal-rule">
+              <span className="card-reveal-diamond card-reveal-diamond--edge">◆</span>
+              <span className="card-reveal-line" />
+              <span className="card-reveal-diamond">◆</span>
+              <span className="card-reveal-line" />
+              <span className="card-reveal-diamond card-reveal-diamond--edge">◆</span>
+            </div>
+            <div className="card-reveal-wasta-row">
+              <img src="/phone-call.png" className="card-reveal-wasta-badge" alt="" />
+              <span className="card-reveal-wasta-body">{WASTA_BODY}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const isSurprise = lastCard.deck === "surprise";
   const drawnBy = players.find((p) => p.id === lastCard.playerId);

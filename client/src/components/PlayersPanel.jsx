@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { socket } from "../socket";
 import ThemeToggle from "./ThemeToggle";
 import PlayerAvatar from "./PlayerAvatar";
+import ConfirmDialog from "./ConfirmDialog";
 import { IconClock } from "./icons";
 
 function TurnCountdown({ deadline }) {
@@ -37,6 +38,7 @@ export default function PlayersPanel({ state, myId, onOpenTrade, onLeave, theme,
   }
 
   const pendingTrades = (state.trades || []).filter((t) => t.toId === myId).length;
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
 
   return (
     <div className="players-panel">
@@ -48,9 +50,21 @@ export default function PlayersPanel({ state, myId, onOpenTrade, onLeave, theme,
         </div>
         <div className="panel-header-actions">
           <ThemeToggle theme={theme} onToggle={onToggleTheme} inline />
-          <button className="panel-leave-btn" onClick={onLeave}>Leave</button>
+          <button className="panel-leave-btn" onClick={() => setConfirmingLeave(true)}>Leave</button>
         </div>
       </div>
+
+      {confirmingLeave && (
+        <ConfirmDialog
+          title="Leave game?"
+          message="You'll forfeit your seat and properties -- this can't be undone."
+          confirmLabel="Leave"
+          cancelLabel="Stay"
+          danger
+          onCancel={() => setConfirmingLeave(false)}
+          onConfirm={() => { setConfirmingLeave(false); onLeave(); }}
+        />
+      )}
 
       {/* Winner banner */}
       {winnerId && (

@@ -72,24 +72,28 @@ function StaticPropChip({ tile }) {
 // A player only ever holds one Get Out of Jail Free card (there's no count to
 // show), so it's a single toggle-able chip alongside the property ones
 // rather than a list -- reuses the same chip look via the same class names.
+// Same red accent as the Wasta card's own reveal design (CardReveal) and
+// the My Properties kept-card badge -- #c9960a (gold) read as just another
+// property chip; this card isn't a property, so it gets the same identity
+// color as everywhere else it appears.
 function JailCardChip({ selected, onToggle }) {
   return (
     <div
       className={`trade-prop-chip${selected ? " selected" : ""}`}
-      style={{ "--chip-color": "#c9960a" }}
+      style={{ "--chip-color": "#c0392b" }}
       onClick={onToggle}
     >
       <span className="prop-dot" />
-      <span className="trade-prop-chip-name">Get Out of Jail Free</span>
+      <span className="trade-prop-chip-name">كرت الواسطة</span>
     </div>
   );
 }
 
 function StaticJailCardChip() {
   return (
-    <div className="trade-prop-chip trade-prop-chip--static" style={{ "--chip-color": "#c9960a" }}>
+    <div className="trade-prop-chip trade-prop-chip--static" style={{ "--chip-color": "#c0392b" }}>
       <span className="prop-dot" />
-      <span className="trade-prop-chip-name">Get Out of Jail Free</span>
+      <span className="trade-prop-chip-name">كرت الواسطة</span>
     </div>
   );
 }

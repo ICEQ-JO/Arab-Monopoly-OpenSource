@@ -11,6 +11,7 @@ import GameLog from "./components/GameLog";
 import TradeModal from "./components/TradeModal";
 import AuctionModal from "./components/AuctionModal";
 import DevTools from "./components/DevTools";
+import ConfirmDialog from "./components/ConfirmDialog";
 import RulesPanel from "./components/RulesPanel";
 import IconPicker from "./components/IconPicker";
 import ThemeToggle from "./components/ThemeToggle";
@@ -41,6 +42,7 @@ function App() {
   // tile -- lifted out of BoardClassic so CardReveal can hold off popping up
   // a drawn Surprise/Treasure card until the token has actually landed.
   const [tokenMoving, setTokenMoving] = useState(false);
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
 
   useEffect(() => {
     applyTheme(theme);
@@ -90,6 +92,21 @@ function App() {
     if (!state || !startError) return;
     if (state.players.every((p) => p.icon)) setStartError("");
   }, [state, startError]);
+
+  // A bankrupt player has no properties and no turn left to take (see
+  // Room.checkBankruptcy) -- the board's action zone has nothing valid to
+  // show them anymore, so send them back to the join screen the same way
+  // Leave already does, instead of leaving them stuck looking at
+  // now-meaningless End Turn/debt-warning controls. handleLeave's
+  // `leaveRoom` emit is a harmless no-op server-side for an already-
+  // bankrupt player (kickPlayer bails out immediately if `player.bankrupt`
+  // is already true) -- this doesn't double-penalize them, it just clears
+  // the local session/view.
+  useEffect(() => {
+    if (!state || !myId) return;
+    const me = state.players.find((p) => p.id === myId);
+    if (me?.bankrupt) handleLeave();
+  }, [state, myId]);
 
   // Accept/decline and buying a tile have no dedicated socket event of their
   // own that reaches every client (respondTrade/buyProperty only call back
@@ -331,9 +348,20 @@ function App() {
               </div>
             )}
 
-            <button className="lobby-btn-secondary" onClick={handleLeave}>
+            <button className="lobby-btn-secondary" onClick={() => setConfirmingLeave(true)}>
               Leave Room
             </button>
+
+            {confirmingLeave && (
+              <ConfirmDialog
+                title="Leave room?"
+                message="You'll need the room code again to rejoin."
+                confirmLabel="Leave"
+                cancelLabel="Stay"
+                onCancel={() => setConfirmingLeave(false)}
+                onConfirm={() => { setConfirmingLeave(false); handleLeave(); }}
+              />
+            )}
           </div>
         </div>
       </div>

@@ -6,6 +6,7 @@ import PlayerToken from "./PlayerToken";
 import PropertyCardDetail from "./PropertyCardDetail";
 import TransitCardDetail from "./TransitCardDetail";
 import CardReveal from "./CardReveal";
+import ConfirmDialog from "./ConfirmDialog";
 import { ICONS } from "../data/icons";
 import "../classicVintage.css";
 
@@ -15,6 +16,25 @@ import "../classicVintage.css";
 // all). Transit tiles get their own TransitCardDetail card instead; this
 // board has no utility tiles so those two cover every ownable tile type.
 const CLICKABLE_TYPES = ["property", "transit"];
+
+// The other two corners (REST's regeneration.svg, TAX's pig.svg) are drawn
+// with inline SVG/an existing icon; these three needed dedicated art since
+// nothing in the icon set already represented "start", "sent to holding",
+// or "go to holding".
+const CORNER_ICON_SRC = {
+  start: "/bow-and-arrow.png",
+  holding: "/captive.png",
+  go_to_holding: "/police.png",
+};
+
+// Eagerly fetches the three corner-tile images the instant this module
+// loads, same reasoning as App.jsx's ICONS preload -- so they're already
+// decoded and cached before the board's first render instead of visibly
+// popping in.
+Object.values(CORNER_ICON_SRC).forEach((src) => {
+  const img = new Image();
+  img.src = src;
+});
 
 export function TreasureIcon() {
   return (
@@ -169,10 +189,27 @@ function legEasing(index, total) {
   return "linear";
 }
 
+// The Holding corner's "just visiting" outer frame vs. "in prison" inner
+// cell -- mirrors the real board's split jail tile. Only classic-vintage's
+// HOLDING tile sets `visitingLabel`; other boards' HOLDING tiles (English
+// names, no visitingLabel) fall through to the plain corner-icon layout
+// below instead of half-rendering this split with blank frame text.
+function HoldingCornerArt({ name, visitingLabel }) {
+  return (
+    <div className="cv2-holding-corner">
+      <span className="cv2-holding-frame-top">{visitingLabel}</span>
+      <div className="cv2-holding-cell">
+        <img src={CORNER_ICON_SRC.holding} className="cv2-holding-cell-icon" alt="" />
+        <span className="cv2-holding-cell-name">{name}</span>
+      </div>
+    </div>
+  );
+}
+
 function ClassicTile({ tile, owned, players, sideLen, onSelect, isSelected }) {
-  const { id, name, price, amount, groupColor, type } = tile;
+  const { id, name, price, amount, groupColor, type, visitingLabel } = tile;
   const { edge, row, col } = getLayout(id, sideLen);
-  const hasIcon = type === "treasure" || type === "surprise" || type === "tax" || type === "transit" || type === "rest";
+  const hasIcon = type === "treasure" || type === "surprise" || type === "tax" || type === "transit" || type === "rest" || type in CORNER_ICON_SRC;
   const isLRSide = edge === "left" || edge === "right";
   const nameParts = name.split(" ");
   const isCorner = edge === "corner";
@@ -216,6 +253,8 @@ function ClassicTile({ tile, owned, players, sideLen, onSelect, isSelected }) {
             <img src="/bus.svg" className="cv2-bus-icon" alt="" />
             <span className="cv2-transit-name">{nameParts.slice(1).join(" ")}</span>
           </div>
+        ) : type === "holding" && visitingLabel ? (
+          <HoldingCornerArt name={name} visitingLabel={visitingLabel} />
         ) : hasIcon ? (
           <div className="cv2-icon-center">
             <span className="cv2-special-name">
@@ -225,7 +264,17 @@ function ClassicTile({ tile, owned, players, sideLen, onSelect, isSelected }) {
                   ))
                 : name}
             </span>
-            {type === "treasure" ? <TreasureIcon /> : type === "surprise" ? <SurpriseIcon /> : type === "tax" ? <TaxIcon /> : <img src="/regeneration.svg" className="cv2-tile-icon" alt="" />}
+            {type === "treasure" ? (
+              <TreasureIcon />
+            ) : type === "surprise" ? (
+              <SurpriseIcon />
+            ) : type === "tax" ? (
+              <TaxIcon />
+            ) : CORNER_ICON_SRC[type] ? (
+              <img src={CORNER_ICON_SRC[type]} className="cv2-tile-icon" alt="" />
+            ) : (
+              <img src="/regeneration.svg" className="cv2-tile-icon" alt="" />
+            )}
           </div>
         ) : (
           <span className="cv2-name">{name}</span>
@@ -263,22 +312,38 @@ function ClassicTile({ tile, owned, players, sideLen, onSelect, isSelected }) {
 // player always has exactly one current tile, in flight or not, so
 // stacking (stackIndex/stackTotal) works the same way whether a token is
 // sitting still or mid-glide through the tile it's passing.
-function TokenLayer({ players, sideLen, trackCenters, currentPlayerId, visualPositions, floatingIds, landingIds, celebratingIds }) {
-  const byTile = new Map();
+function TokenLayer({ players, sideLen, trackCenters, cellPct, holdingTileId, currentPlayerId, visualPositions, floatingIds, landingIds, celebratingIds }) {
+  // The Holding tile splits into two sub-zones -- everywhere else, all
+  // occupants of a tile still share one shared "main" stack exactly as
+  // before.
+  const byGroup = new Map();
   players.forEach((p) => {
     if (p.bankrupt || p.left) return;
     const entry = visualPositions.get(p.id);
     if (entry == null) return;
-    if (!byTile.has(entry.tileId)) byTile.set(entry.tileId, []);
-    byTile.get(entry.tileId).push({ player: p, glideMs: entry.glideMs, glideEase: entry.glideEase });
+    const zone = entry.tileId === holdingTileId ? (p.inHolding ? "cell" : "frame") : "main";
+    const key = `${entry.tileId}:${zone}`;
+    if (!byGroup.has(key)) byGroup.set(key, { tileId: entry.tileId, zone, occupants: [] });
+    byGroup.get(key).occupants.push({ player: p, glideMs: entry.glideMs, glideEase: entry.glideEase });
   });
 
   return (
     <div className="cv2-token-layer">
-      {[...byTile.entries()].flatMap(([tileId, occupants]) => {
-        const { row, col } = getLayout(tileId, sideLen);
-        const leftPct = trackCenters[col - 1];
-        const topPct = trackCenters[row - 1];
+      {[...byGroup.values()].flatMap(({ tileId, zone, occupants }) => {
+        const { row, col, N } = getLayout(tileId, sideLen);
+        let leftPct = trackCenters[col - 1];
+        let topPct = trackCenters[row - 1];
+        // "frame" (just visiting) sits toward the tile's own outward
+        // corner, along the walkable rim; "cell" (in prison) sits toward
+        // the board's interior -- mirrors HoldingCornerArt's layout in
+        // classicVintage.css.
+        if (zone !== "main") {
+          const dx = col === 1 ? -1 : col === N ? 1 : 0;
+          const dy = row === 1 ? -1 : row === N ? 1 : 0;
+          const sign = zone === "frame" ? 1 : -1;
+          leftPct += dx * cellPct * 0.27 * sign;
+          topPct += dy * cellPct * 0.27 * sign;
+        }
         return occupants.map(({ player: p, glideMs, glideEase }, i) => (
           <PlayerToken
             key={p.id}
@@ -318,10 +383,21 @@ export default function BoardClassic({ state, myId, tokenMoving, onTokenMovingCh
   // glide mid-air.
   const RIM_FR = 1.7;
   const INNER_FR = 1;
-  const { sideLen, N, trackCenters } = useMemo(() => {
+  // cellPct: a rim track's own width/height, as a % of the whole board --
+  // used to offset tokens within the Holding tile's frame/cell sub-zones
+  // (see TokenLayer). holdingTileId looks up the HOLDING tile once here
+  // rather than re-scanning `board` on every render.
+  const { sideLen, N, trackCenters, cellPct, holdingTileId } = useMemo(() => {
     const sideLen = board.length / 4;
     const N = sideLen + 1;
-    return { sideLen, N, trackCenters: buildTrackCenters(N, RIM_FR, INNER_FR) };
+    const totalFr = RIM_FR * 2 + INNER_FR * (N - 2);
+    return {
+      sideLen,
+      N,
+      trackCenters: buildTrackCenters(N, RIM_FR, INNER_FR),
+      cellPct: (RIM_FR / totalFr) * 100,
+      holdingTileId: board.find((t) => t.type === "holding")?.id,
+    };
   }, [board.length]);
 
   // Which tile's info card is currently open, if any, and its on-screen
@@ -333,6 +409,17 @@ export default function BoardClassic({ state, myId, tokenMoving, onTokenMovingCh
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [cardPos, setCardPos] = useState({ top: 0, left: 0 });
   const [propertyErrors, setPropertyErrors] = useState({});
+  // Ending your turn while still in debt immediately bankrupts you
+  // server-side (see Room.finishTurn) -- gate it behind a confirmation
+  // instead of letting one misclick end the game for that player.
+  const [confirmingBankruptcy, setConfirmingBankruptcy] = useState(false);
+  // The per-turn timer can end this turn out from under the player (see
+  // Room.startTurnTimer) while the dialog above is still open -- reset it
+  // once the turn actually moves on, so it doesn't linger `true` and pop
+  // back up unprompted the next time this player's turn comes around.
+  useEffect(() => {
+    setConfirmingBankruptcy(false);
+  }, [turnIndex]);
   const boardRef = useRef(null);
   const cardRef = useRef(null);
   const selectedTileElRef = useRef(null);
@@ -685,6 +772,8 @@ export default function BoardClassic({ state, myId, tokenMoving, onTokenMovingCh
           players={players}
           sideLen={sideLen}
           trackCenters={trackCenters}
+          cellPct={cellPct}
+          holdingTileId={holdingTileId}
           currentPlayerId={currentPlayerId}
           visualPositions={visualPositions}
           floatingIds={floatingIds}
@@ -819,7 +908,7 @@ export default function BoardClassic({ state, myId, tokenMoving, onTokenMovingCh
                     </button>
                     {me.holdingFreeCard && (
                       <button className="cv2-roll-btn cv2-decline-btn" onClick={() => socket.emit("useHoldingFreeCard")}>
-                        Use Free Card
+                        رن عالواسطة
                       </button>
                     )}
                   </div>
@@ -839,7 +928,13 @@ export default function BoardClassic({ state, myId, tokenMoving, onTokenMovingCh
               // mid-tumble.
               if (isMyTurn && !pending && !state.canRollAgain && !diceAnimating) {
                 return (
-                  <button className="cv2-roll-btn" onClick={() => socket.emit("endTurn")}>
+                  <button
+                    className="cv2-roll-btn"
+                    onClick={() => {
+                      if (me?.balance < 0) setConfirmingBankruptcy(true);
+                      else socket.emit("endTurn");
+                    }}
+                  >
                     End Turn
                   </button>
                 );
@@ -872,6 +967,24 @@ export default function BoardClassic({ state, myId, tokenMoving, onTokenMovingCh
             >
               Test: stack all players on a random tile
             </button>
+            {/* Also re-checks isMyTurn -- the per-turn timer can end this
+                turn out from under the player (see Room.startTurnTimer)
+                while this is still open; without this it'd linger open for
+                a turn that's already someone else's. */}
+            {confirmingBankruptcy && players[turnIndex]?.id === myId && (() => {
+              const me = players.find((p) => p.id === myId);
+              return (
+                <ConfirmDialog
+                  title="End turn while in debt?"
+                  message={`You're $${Math.abs(me?.balance || 0)} in debt. Ending your turn now will declare you bankrupt and release your properties to the bank.`}
+                  confirmLabel="End Turn & Go Bankrupt"
+                  cancelLabel="Cancel"
+                  danger
+                  onCancel={() => setConfirmingBankruptcy(false)}
+                  onConfirm={() => { setConfirmingBankruptcy(false); socket.emit("endTurn"); }}
+                />
+              );
+            })()}
           </div>
         </div>
       </div>

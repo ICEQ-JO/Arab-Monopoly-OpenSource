@@ -50,7 +50,7 @@ export const BOARD = [
   { id: 9,  type: TILE_TYPES.TRANSIT,       name: "محطة كوستر",      price: 150, rent: STATION_RENT },
   { id: 10, type: TILE_TYPES.PROPERTY,      name: "داقستان",         price: 140, ...G("olive") },
   { id: 11, type: TILE_TYPES.PROPERTY,      name: "موسكو",           price: 160, ...G("olive") },
-  { id: 12, type: TILE_TYPES.HOLDING,       name: "في الحبس مظاليم" },
+  { id: 12, type: TILE_TYPES.HOLDING,       name: "في الحبس مظاليم", visitingLabel: "الدنيا دوارة" },
   { id: 13, type: TILE_TYPES.PROPERTY,      name: "اغوار الشمال",    price: 180, ...G("salmonRight") },
   { id: 14, type: TILE_TYPES.PROPERTY,      name: "نهر الميراندا",   price: 180, ...G("salmonRight") },
   { id: 15, type: TILE_TYPES.SURPRISE,      name: "الحظ" },
