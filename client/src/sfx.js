@@ -1,15 +1,11 @@
-// Shared, synthesized (no audio files/libraries) sound-effect module. Owns a
-// single lazily-created AudioContext so dice-roll/move sounds and the lobby's
-// background ambience (see Lobby.jsx) all share one mute flag and one
-// context, rather than each component managing its own.
+// Shared sound-effect module. Owns a single lazily-created AudioContext so
+// all game sounds share one mute flag and one context.
 const KEY = "richman-sound-enabled";
 
 let ctx = null;
-// Default OFF, matching the lobby's original default-muted convention --
-// nothing can play without a user gesture anyway (browser autoplay policy),
-// so defaulting the icon/flag to "on" before any gesture has happened would
-// be misleading (looks enabled, plays nothing).
-let enabled = localStorage.getItem(KEY) === "true";
+// Default ON -- gameplay is expected to have sound, and the browser's autoplay
+// policy only blocks audio before the first user gesture.
+let enabled = localStorage.getItem(KEY) !== "false";
 
 export function isSoundEnabled() {
   return enabled;
@@ -21,7 +17,6 @@ export function setSoundEnabled(v) {
 }
 
 // Call from a real user gesture (click) to create/resume the shared context.
-// Safe to call repeatedly -- creates once, resumes if suspended.
 export function primeAudio() {
   if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
   if (ctx.state === "suspended") ctx.resume().catch(() => {});
@@ -37,17 +32,6 @@ function safeCtx() {
   return ctx;
 }
 
-// Recorded-clip effects (dice throw, trade lifecycle, buying a tile) are
-// decoded once and played through the same shared AudioContext the
-// synthesized effects below use, rather than a plain <audio> element. These
-// all fire off a game-state broadcast (see App.jsx/BoardClassic.jsx) so every
-// player in the room hears them together, including everyone who *didn't*
-// click anything themselves this instant -- a plain HTMLMediaElement's
-// .play() is what triggers browsers' autoplay block in that case, since it
-// isn't running inside the click that caused it. The AudioContext only needs
-// resuming once per page (via primeAudio(), itself always called from an
-// actual gesture -- the sound toggle or Roll Dice/Buy clicks), and every
-// buffer scheduled on it afterwards, sync or async, plays fine.
 const clipBufferCache = new Map();
 function loadClipBuffer(c, src) {
   if (clipBufferCache.has(src)) return clipBufferCache.get(src);
@@ -74,18 +58,28 @@ function makeClipPlayer(src, volume = 1) {
   };
 }
 
-// Dice throw -- fired off the rollSeq broadcast (see Dice.jsx) rather than
-// the Roll Dice click itself, so it lands for the whole room together.
-export const playDiceThrow = makeClipPlayer("/whoosh.mp3", 0.8);
-// A new trade offer landing in everyone's Open Trades list.
-export const playTradePopup = makeClipPlayer("/Tradin2.mp3");
-// A trade being accepted / declined, or a property being bought (see
-// App.jsx's game-log watcher).
-export const playTradeAccepted = makeClipPlayer("/TradeAccepted.mp3");
-export const playTradeDeclined = makeClipPlayer("/DeclineTrade.mp3");
-export const playBoughtTile = makeClipPlayer("/Bought_tile.mp3");
+export const playDiceThrow      = makeClipPlayer("/sounds/dice_throw.mp3", 0.8);
+export const playDoubleDice     = makeClipPlayer("/sounds/doubleDice.mp3", 0.8);
+export const playThirdDouble    = makeClipPlayer("/sounds/thirdDouble.mp3");
+export const playGoToPrison     = makeClipPlayer("/sounds/when_player_goes_to_priosn.mp3");
+export const playMoneyGained    = makeClipPlayer("/sounds/money_gained.mp3");
+export const playMoneyLost      = makeClipPlayer("/sounds/money_lost.mp3");
+export const playAuctionStart   = makeClipPlayer("/sounds/auction_start.mp3");
+export const playWin            = makeClipPlayer("/sounds/win.mp3");
+export const playBuild          = makeClipPlayer("/sounds/build_house_hotel.mp3");
+export const playSellBuilding   = makeClipPlayer("/sounds/build_sell.mp3");
+export const playMortgage       = makeClipPlayer("/sounds/mortgaged.mp3");
+export const playCardPull       = makeClipPlayer("/sounds/card-pull.mp3");
+export const playGameStart      = makeClipPlayer("/sounds/gameStart.mp3");
+export const playError          = makeClipPlayer("/sounds/error.mp3");
 
-// Quick descending "swoosh": one oscillator with a fast frequency ramp down.
+// Backwards-compatible aliases for existing callers.
+export const playTradePopup     = playMoneyGained;   // ponytail: old trade-offer sound removed; reuse gain chime
+export const playTradeAccepted  = playMoneyGained;   // ponytail: old trade-accept sound removed; reuse gain chime
+export const playTradeDeclined  = playMoneyLost;     // ponytail: old trade-decline sound removed; reuse loss chime
+export const playBoughtTile     = playMoneyLost;     // ponytail: old buy sound removed; reuse loss chime (purchase = cash out)
+
+// Token movement swoosh (synthesized, per-step).
 export function playMoveSwoosh() {
   const c = safeCtx();
   if (!c) return;

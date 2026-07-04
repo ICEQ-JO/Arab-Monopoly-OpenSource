@@ -17,7 +17,7 @@ import IconPicker from "./components/IconPicker";
 import ThemeToggle from "./components/ThemeToggle";
 import { IconCopy, IconCheck } from "./components/icons";
 import { ICONS } from "./data/icons";
-import { playTradePopup, playTradeAccepted, playTradeDeclined, playBoughtTile } from "./sfx";
+import { playTradePopup, playTradeAccepted, playTradeDeclined, playBoughtTile, playMoneyGained, playMoneyLost, playCardPull, playWin, playGameStart, playAuctionStart, playError, playMortgage, playBuild, playSellBuilding, playDoubleDice, playThirdDouble, playGoToPrison } from "./sfx";
 import "./App.css";
 
 // Eagerly fetches every player-icon image the instant this module loads --
@@ -48,6 +48,10 @@ function App() {
     applyTheme(theme);
   }, [theme]);
 
+  // Tracks each player's last-known balance so any log entry that involves a
+  // balance change can play the appropriate gain/loss sound once for everyone.
+  const prevBalancesRef = useRef(new Map());
+
   // Tracks each player's last-known position so an incoming "state" broadcast
   // that moves someone can flip tokenMoving to true in the SAME render as the
   // new position/card data (see handleState below). BoardClassic's own glide
@@ -58,6 +62,12 @@ function App() {
   // tokenMoving is already true, which a purely effect-driven flag (set one
   // render after the state update lands) was consistently one render late for.
   const prevMovePositionsRef = useRef(new Map());
+
+  // Tracks game-started transitions so the start fanfare only plays once.
+  const prevStartedRef = useRef(false);
+
+  // Tracks winner transitions so the win fanfare only plays once.
+  const prevWinnerRef = useRef(false);
 
   // Chimes for everyone in the room the instant any new trade offer shows up
   // in state.trades, not just its recipient. seenTradeIdsRef starts empty and
@@ -119,6 +129,30 @@ function App() {
   const lastLogRef = useRef(undefined);
   useEffect(() => {
     if (!state) return;
+
+    // Game start / win fanfares (transition-based, not log-based).
+    if (state.started && !prevStartedRef.current) playGameStart();
+    prevStartedRef.current = state.started;
+    if (state.winnerId && !prevWinnerRef.current) playWin();
+    prevWinnerRef.current = !!state.winnerId;
+
+    // Balance-change sounds: detect when any player's current balance is
+    // higher/lower than their last known balance. We only do this once per
+    // state update and avoid playing on the very first snapshot.
+    const prevBalances = prevBalancesRef.current;
+    let gained = false, lost = false;
+    (state.players || []).forEach((p) => {
+      const prev = prevBalances.get(p.id);
+      if (prev !== undefined) {
+        if (p.balance > prev) gained = true;
+        else if (p.balance < prev) lost = true;
+      }
+      prevBalances.set(p.id, p.balance);
+    });
+    if (gained && !lost) playMoneyGained();
+    else if (lost && !gained) playMoneyLost();
+
+    // Log-line sounds.
     const newest = (state.log || [])[0];
     const prev = lastLogRef.current;
     lastLogRef.current = newest;
@@ -126,6 +160,16 @@ function App() {
     if (newest.includes("completed a trade.")) playTradeAccepted();
     else if (newest.includes("declined") && newest.includes("trade offer")) playTradeDeclined();
     else if (newest.includes(" bought ")) playBoughtTile();
+    else if (newest.includes("auction")) playAuctionStart();
+    else if (newest.includes("mortgaged")) playMortgage();
+    else if (newest.includes("unmortgaged")) playMortgage();
+    else if (newest.includes("built")) playBuild();
+    else if (newest.includes("sold")) playSellBuilding();
+    else if (newest.includes("drew a") || newest.includes("draws a")) playCardPull();
+    else if (newest.includes("went to") && newest.includes("Holding Pen")) playGoToPrison();
+    else if (newest.includes("rolled doubles")) playDoubleDice();
+    else if (newest.includes("three doubles")) playThirdDouble();
+    else if (newest.includes("not enough")) playError();
   }, [state]);
 
   function toggleTheme() {
