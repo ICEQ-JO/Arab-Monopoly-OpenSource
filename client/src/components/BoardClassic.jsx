@@ -6,6 +6,7 @@ import PlayerToken from "./PlayerToken";
 import PropertyCardDetail from "./PropertyCardDetail";
 import TransitCardDetail from "./TransitCardDetail";
 import CardReveal from "./CardReveal";
+import WastaAttemptReveal from "./WastaAttemptReveal";
 import ConfirmDialog from "./ConfirmDialog";
 import { ICONS } from "../data/icons";
 import "../classicVintage.css";
@@ -841,6 +842,7 @@ export default function BoardClassic({ state, myId, tokenMoving, onTokenMovingCh
         )}
 
         <CardReveal state={state} myId={myId} tokenMoving={tokenMoving} />
+        <WastaAttemptReveal state={state} myId={myId} />
 
         <div className="cv2-center" style={{ gridRow: `2 / ${N}`, gridColumn: `2 / ${N}` }}>
           <div className="cv2-title">Monoboly عرب</div>

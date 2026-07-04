@@ -122,7 +122,7 @@ export default function CardReveal({ state, myId, tokenMoving }) {
           <span className="card-reveal-corner card-reveal-corner--bl">◆</span>
           <span className="card-reveal-corner card-reveal-corner--br">◆</span>
         </div>
-        <span className="card-reveal-label">{isSurprise ? "Surprise" : "Treasure"}</span>
+        <span className="card-reveal-label">{isSurprise ? "الحظ" : "الصندوق"}</span>
         <div className="card-reveal-rule">
           <span className="card-reveal-diamond card-reveal-diamond--edge">◆</span>
           <span className="card-reveal-line" />
@@ -135,7 +135,7 @@ export default function CardReveal({ state, myId, tokenMoving }) {
           <>
             <div className="card-reveal-rule card-reveal-rule--thin" />
             <div className="card-reveal-by">
-              Drawn by {drawnBy.id === myId ? "you" : drawnBy.name}
+              {drawnBy.id === myId ? "سحبتها انت" : `سحبها ${drawnBy.name}`}
             </div>
           </>
         )}

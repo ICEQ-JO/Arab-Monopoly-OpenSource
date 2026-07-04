@@ -15,6 +15,7 @@ export const AUCTION_BASE_MS = 10 * 1000;
 export const AUCTION_EXTEND_MS = 3 * 1000;
 export const MIN_TRADE_TIME_LIMIT_SEC = 10;
 export const MAX_TRADE_TIME_LIMIT_SEC = 10 * 60;
+export const WASTA_SUCCESS_RATE = 0.3;
 
 const PLAYER_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6", "#1abc9c"];
 
@@ -78,6 +79,11 @@ export class Room {
     // otherwise never see this tile at all; exposing it lets the token
     // animate walking there first before the actual teleport into the pen.
     this.jailFromTileId = null;
+    // Bumped on every useHoldingFreeCard() attempt -- same "tell a genuinely
+    // new event apart from a resend" role as cardSeq/jailSeq, so the client
+    // can pop the wasta reveal exactly once per attempt.
+    this.wastaSeq = 0;
+    this.lastWastaAttempt = null;
   }
 
   updateSettings(hostId, { rules } = {}) {
@@ -99,10 +105,20 @@ export class Room {
       ? preferredColor
       : fallback;
     const seatNum = this.players.length + 1;
+    const baseName = name.trim() || `Seat ${seatNum}`;
+    // The game log and renderLogEntry (client) identify who a log line is
+    // about by matching a player's name as plain text -- two players with
+    // the exact same name are indistinguishable that way, so every line
+    // silently attributes to whichever of them happens to match first,
+    // showing that one player's icon for everyone's actions. Dedupe up
+    // front, the same way color collisions are already resolved above.
+    const takenNames = new Set(this.players.map((p) => p.name));
+    let uniqueName = baseName;
+    for (let n = 2; takenNames.has(uniqueName); n++) uniqueName = `${baseName} (${n})`;
     this.players.push({
       id,
       token,
-      name: name.trim() || `Seat ${seatNum}`,
+      name: uniqueName,
       color,
       connected: true,
       graceTimer: null,
@@ -494,7 +510,13 @@ export class Room {
       this[deckKey] = shuffledDeck(deckName === "surprise" ? SURPRISE_CARDS : TREASURE_CARDS);
     }
     const card = this[deckKey].shift();
-    this.pushLog(`${player.name} drew: "${card.text}"`);
+    // Same deck-name convention CardReveal.jsx uses for its own label: "الحظ"
+    // is literally the Surprise tile's own name everywhere it appears on the
+    // board (classic-vintage.js); "الصندوق" is the recurring word across the
+    // three differently-flavored Treasure tile names, since none of them
+    // share one exact name the way every Surprise tile does.
+    const deckArabicName = deckName === "surprise" ? "الحظ" : "الصندوق";
+    this.pushLog(`سحب ${player.name} كرت ${deckArabicName}: "${card.text}"`);
     this.applyCardEffect(player, card.effect);
     // effectType lets the client single out specific cards for a custom
     // reveal design (the Get Out of Jail Free card) without hardcoding a
@@ -583,16 +605,30 @@ export class Room {
     return { ok: true };
   }
 
+  // The card is a phone call to a connection, not a guaranteed release -- it
+  // only actually gets the player out WASTA_SUCCESS_RATE of the time, and is
+  // spent either way (consumed on both outcomes, not just success). A failed
+  // attempt leaves the player still inHolding, still allowed to Roll Dice/Pay
+  // $50 the same turn (see BoardClassic.jsx's action row, which only hides
+  // this button once holdingFreeCard is gone) -- exactly as if they'd never
+  // had the card in the first place.
   useHoldingFreeCard(playerId) {
     const player = this.currentPlayer();
     if (!player || player.id !== playerId) return { error: "Not your turn" };
     if (!player.inHolding) return { error: "You're not in the Holding Pen" };
     if (!player.holdingFreeCard) return { error: "You don't have a Get Out of Jail Free card" };
     player.holdingFreeCard = false;
-    player.inHolding = false;
-    player.holdingTurns = 0;
-    this.pushLog(`${player.name} used a Get Out of Jail Free card to leave the Holding Pen.`);
-    return { ok: true };
+    const success = Math.random() < WASTA_SUCCESS_RATE;
+    if (success) {
+      player.inHolding = false;
+      player.holdingTurns = 0;
+      this.pushLog(`${player.name} used a Get Out of Jail Free card to leave the Holding Pen.`);
+    } else {
+      this.pushLog(`${player.name} tried to use a Get Out of Jail Free card, but the call didn't go through.`);
+    }
+    this.lastWastaAttempt = { playerId, success };
+    this.wastaSeq += 1;
+    return { ok: true, success };
   }
 
   // Resolves a movement card ("advance to X" / "move N spaces") that's been sitting
@@ -669,9 +705,24 @@ export class Room {
   // before repeating -- a deliberate way to review the whole deck, not
   // truly random. Refuses while another action is already pending so it
   // can't clobber real game state (e.g. an in-progress awaitBuy).
+  //
+  // Restricted to the current turn's player: a movement card (advanceTo/move,
+  // ~6 of 28) doesn't resolve immediately -- it sets `pendingAction.playerId`
+  // to whoever drew it and waits on their own confirmCardMove. The client's
+  // "Continue" button is only ever rendered for whoever the game considers
+  // the active turn-holder (see BoardClassic.jsx's action zone), since in
+  // every *real* draw those are the same player by construction. DevTools is
+  // mounted for every player regardless of turn, so without this check, an
+  // off-turn player drawing a movement card here would leave pendingAction
+  // permanently unresolvable by anyone -- neither the real current player
+  // (wrong playerId, confirmCardMove silently rejects) nor the drawer
+  // (isMyTurn false, no Continue button ever shows) can clear it.
   debugDrawCard(playerId, deckName) {
     const player = this.playerById(playerId);
     if (!player) return { error: "Player not found" };
+    if (this.started && this.currentPlayer()?.id !== playerId) {
+      return { error: "Only the current turn's player can use this" };
+    }
     if (this.pendingAction) return { error: "Resolve the current action first" };
     if (deckName !== "surprise" && deckName !== "treasure") return { error: "Unknown deck" };
     this.drawCard(player, deckName);
@@ -1257,6 +1308,8 @@ export class Room {
       jailSeq: this.jailSeq,
       jailedPlayerId: this.jailedPlayerId,
       jailFromTileId: this.jailFromTileId,
+      wastaSeq: this.wastaSeq,
+      lastWastaAttempt: this.lastWastaAttempt,
       rules: this.rules,
       vacationPot: this.vacationPot,
     };
@@ -1289,6 +1342,8 @@ export class Room {
       jailSeq: this.jailSeq,
       jailedPlayerId: this.jailedPlayerId,
       jailFromTileId: this.jailFromTileId,
+      wastaSeq: this.wastaSeq,
+      lastWastaAttempt: this.lastWastaAttempt,
       rules: this.rules,
       vacationPot: this.vacationPot,
     };
@@ -1329,6 +1384,8 @@ export class Room {
     room.jailSeq = snapshot.jailSeq || 0;
     room.jailedPlayerId = snapshot.jailedPlayerId || null;
     room.jailFromTileId = snapshot.jailFromTileId ?? null;
+    room.wastaSeq = snapshot.wastaSeq || 0;
+    room.lastWastaAttempt = snapshot.lastWastaAttempt || null;
 
     for (const player of room.players) {
       if (!player.connected && !player.left && !player.bankrupt) {

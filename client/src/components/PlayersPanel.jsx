@@ -164,7 +164,6 @@ export default function PlayersPanel({ state, myId, onLeave, theme, onToggleThem
                 <div className="panel-player-status">
                   {p.bankrupt && <span className="panel-badge badge-bankrupt">bankrupt</span>}
                   {p.left && <span className="panel-badge badge-left">left</span>}
-                  {p.inHolding && !p.bankrupt && <span className="panel-badge badge-holding">⛓ holding</span>}
                   {!p.connected && !p.left && <span className="panel-badge badge-dc">reconnecting…</span>}
                   {p.balance < 0 && <span className="panel-badge badge-debt">in debt</span>}
                 </div>

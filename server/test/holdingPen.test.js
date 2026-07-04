@@ -1,7 +1,20 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { makeRoom, cleanup, withDice } from "./helpers.js";
-import { MAX_HOLDING_TURNS, HOLDING_RELEASE_RENT } from "../src/game/Room.js";
+import { MAX_HOLDING_TURNS, HOLDING_RELEASE_RENT, WASTA_SUCCESS_RATE } from "../src/game/Room.js";
+
+// useHoldingFreeCard now rolls against WASTA_SUCCESS_RATE instead of always
+// succeeding -- pins Math.random to deterministically land on one side or the
+// other, same "patch and restore" shape withDice already uses for dice rolls.
+function withWastaRoll(willSucceed, fn) {
+  const orig = Math.random;
+  Math.random = () => (willSucceed ? 0 : WASTA_SUCCESS_RATE);
+  try {
+    return fn();
+  } finally {
+    Math.random = orig;
+  }
+}
 
 test(`stuck in the Holding Pen for non-doubles rolls, forced out on attempt ${MAX_HOLDING_TURNS}`, () => {
   const room = makeRoom();
@@ -95,7 +108,7 @@ test("holding a Get Out of Jail Free card does not exempt a player from being se
   assert.equal(alice.holdingFreeCard, true, "the card is untouched -- spent later via useHoldingFreeCard, not automatically");
 });
 
-test("useHoldingFreeCard consumes the card and clears inHolding without charging coins", () => {
+test("useHoldingFreeCard consumes the card and clears inHolding without charging coins, on a successful roll", () => {
   const room = makeRoom();
   after(() => cleanup(room));
   const alice = room.players[0];
@@ -103,11 +116,27 @@ test("useHoldingFreeCard consumes the card and clears inHolding without charging
   alice.holdingFreeCard = true;
   const balanceBefore = alice.balance;
 
-  const result = room.useHoldingFreeCard("p0");
+  const result = withWastaRoll(true, () => room.useHoldingFreeCard("p0"));
 
-  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(result, { ok: true, success: true });
   assert.equal(alice.inHolding, false);
   assert.equal(alice.holdingFreeCard, false);
+  assert.equal(alice.balance, balanceBefore);
+});
+
+test("useHoldingFreeCard consumes the card but leaves the player in Holding on a failed roll", () => {
+  const room = makeRoom();
+  after(() => cleanup(room));
+  const alice = room.players[0];
+  alice.inHolding = true;
+  alice.holdingFreeCard = true;
+  const balanceBefore = alice.balance;
+
+  const result = withWastaRoll(false, () => room.useHoldingFreeCard("p0"));
+
+  assert.deepEqual(result, { ok: true, success: false });
+  assert.equal(alice.inHolding, true, "the call didn't go through -- still stuck in Holding");
+  assert.equal(alice.holdingFreeCard, false, "spent either way, not just on success");
   assert.equal(alice.balance, balanceBefore);
 });
 

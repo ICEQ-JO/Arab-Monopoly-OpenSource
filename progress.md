@@ -9,6 +9,297 @@ in the same pass.
 
 ---
 
+## Pass 44 — 2026-07-04 — Arabize the card-draw log line and reveal labels (reversing Pass 40/41's "leave it" call)
+
+**Goal:** Pass 40/41 flagged the card-draw game-log wrapper and
+`CardReveal.jsx`'s "Surprise"/"Treasure"/"Drawn by" labels as deliberately
+out of scope per the user's "let's not play with the logs." User reversed
+that this pass and asked to fix them after all.
+
+**What was done:**
+- `Room.js`'s `drawCard`: the log line was
+  `` `${player.name} drew: "${card.text}"` ``. Replaced with
+  `` `سحب ${player.name} كرت ${deckArabicName}: "${card.text}"` ``, where
+  `deckArabicName` is "الحظ" for Surprise and "الصندوق" for Treasure.
+- `CardReveal.jsx`: the reveal card's own deck label swapped from
+  "Surprise"/"Treasure" to the same "الحظ"/"الصندوق" pair, and "Drawn by
+  {name}"/"Drawn by you" became "سحبها {name}"/"سحبتها انت".
+- Deck-name picks weren't arbitrary: "الحظ" is the *exact* name every
+  Surprise tile already carries on the board (`classic-vintage.js`, tiles
+  15 and 26 both literally named "الحظ") — zero-risk reuse. Treasure has
+  no single equivalent (its three tiles are "صنوق الحج", "صندوق المرأة",
+  "جمعية الديوان" — all different), so "الصندوق" ("the box") was picked
+  as the word two of the three already share, rather than inventing an
+  unrelated new term.
+
+**State at end of pass:** server `npm test` 60/60 (no test asserted on
+the exact pushLog string, only `lastCard.text`, which was untouched).
+Client `vite build`/`oxlint` clean (same 5 pre-existing warnings). Not
+visually verified by the assistant per [[feedback-verification-approach]]
+— user to draw a card and confirm the reveal card's label and the game
+log line both read right, RTL included.
+
+---
+
+## Pass 43 — 2026-07-04 — Wasta card now only a 30% chance of working
+
+**Goal:** user's own idea for "something interesting" — the Get Out of
+Jail Free (Wasta) card should only actually get a player out of the
+Holding Pen 30% of the time when used, with two Arabic reveal lines for
+the outcome: "وصلت الواسطة" (success) and, on failure, "والله يا غالي
+كنت باجتماع مسكر وتلفوني سايلنت، حقك علي." (swapped in after the
+initial wording, replacing an earlier failure line). Asked the user one
+clarifying question first — whether a failed attempt keeps the card for
+a later retry, or consumes it regardless — since that's a real balance
+fork, not a wording choice. User picked **consumed either way**.
+
+**What was done (server):**
+- `Room.js`: new exported `WASTA_SUCCESS_RATE = 0.3` constant.
+  `useHoldingFreeCard` now always clears `holdingFreeCard` first (spent
+  regardless of outcome), then rolls `Math.random() < WASTA_SUCCESS_RATE`
+  — on success, clears `inHolding` exactly as before; on failure,
+  `inHolding` stays true but every other option (Roll Dice, Pay $50) is
+  still available the same turn, same as if the player never had the
+  card. Records the outcome as `lastWastaAttempt: { playerId, success }`
+  and bumps a new `wastaSeq` counter (same "tell a genuinely new event
+  apart from a resend" role as `rollSeq`/`cardSeq`/`jailSeq`) so the
+  client can pop the reveal exactly once per attempt. Both new fields
+  added to `toState()`, `toSnapshot()`, and restored in `fromSnapshot()`.
+- `holdingPen.test.js`: the old single "always succeeds" test is now two
+  tests, each pinning `Math.random` (a new local `withWastaRoll` helper,
+  same patch-and-restore shape `helpers.js`'s `withDice` already uses) to
+  deterministically force a success or a failure, asserting the
+  card-spent-either-way / `inHolding`-only-clears-on-success behavior
+  explicitly.
+
+**What was done (client):**
+- New `components/WastaAttemptReveal.jsx`: watches `wastaSeq`/
+  `lastWastaAttempt` and pops up one of the two Arabic lines in the exact
+  same "Wasta card" visual shell `CardReveal.jsx` already built for the
+  card-draw moment (frame, corners, phone-call badge, same auto-dismiss/
+  click-to-dismiss behavior) — kept as its own component rather than
+  folded into `CardReveal` since the two are driven by unrelated trigger
+  sources (`cardSeq` vs `wastaSeq`) that could in principle fire
+  independently, and sharing one dismiss-timer/`visible` state risked one
+  clobbering the other. Mounted in `BoardClassic.jsx` right alongside
+  `CardReveal`. Also shows a small "X tried the wasta" attribution line
+  (English, matching `CardReveal`'s existing "Drawn by X" convention) so
+  onlookers know whose attempt just resolved.
+- `systemDesign.md`: updated the Holding Pen section, the `useHoldingFreeCard`
+  wire-protocol row, the `toState()` shape snippet, and one stale §5
+  invariant bullet that said using the card "just clears inHolding"
+  unconditionally.
+
+**Follow-up in the same pass:** user supplied a second badge image,
+`phone-call-fail.png` (repo root), to swap in specifically for the
+failure reveal instead of reusing the success card's `phone-call.png`.
+Copied to `client/public/` (same root+public duplicate convention as
+every other board icon) and preloaded eagerly via `new Image()`, same
+reasoning as `CardReveal.jsx`'s existing phone-call.png preload — this
+one only ever first renders whenever a wasta attempt actually fails,
+well after the game's already running, so without the preload it would
+visibly pop in on that first failure instead of already being decoded
+and cached.
+
+**Why these calls:** the log line and `CardReveal`'s existing English
+chrome ("drew:", "Surprise"/"Treasure"/"Drawn by") were explicitly left
+alone in Pass 40/41 per the user's "let's not play with the logs" — this
+pass doesn't touch either; the new reveal and its "tried the wasta" line
+are a brand-new UI surface, not a rewording of the existing log/labels.
+
+**State at end of pass:** server `npm test` 60/60 (1 new). Client `vite
+build` and `oxlint` clean (same 5 pre-existing warnings, nothing new).
+Not visually verified by the assistant per [[feedback-verification-approach]]
+— user to get jailed with the card banked, click "رن عالواسطة" a few
+times across turns, and confirm both reveal outcomes render correctly
+(including for a second player watching, since the reveal is room-wide).
+
+---
+
+## Pass 42 — 2026-07-04 — Remove the "holding" badge from the Players panel
+
+**Goal:** user flagged (via screenshot) the orange "⛓ holding" badge that
+appears next to a jailed player's name in the sidebar Players panel and
+asked for it gone.
+
+**What was done:**
+- `PlayersPanel.jsx`: removed the `{p.inHolding && !p.bankrupt && ...}`
+  badge line entirely.
+- `App.css`: removed the now-unused `.badge-holding` rule alongside it
+  (confirmed via grep no other reference remained).
+
+**State at end of pass:** `vite build` clean. Not visually verified by the
+assistant per [[feedback-verification-approach]] — user to confirm the
+badge no longer shows for a jailed player.
+
+---
+
+## Pass 41 — 2026-07-04 — Fix dev card-draw buttons softlocking the game off-turn
+
+**Goal:** user reported "the dev buttons that draw the cards aren't
+working as planned" while presumably cycling through the freshly-reworded
+deck (Pass 40) to check the new wording.
+
+**Root cause:** `DevTools.jsx`'s "Draw Surprise"/"Draw Treasure" buttons
+are mounted for *every* player regardless of whose turn it is
+(`App.jsx`'s `{import.meta.env.DEV && <DevTools />}` isn't turn-gated),
+but `Room.debugDrawCard` never checked whose turn it actually was either.
+6 of the 28 cards (`s4`, `s6`, `s10`, `s12`, `t5`, `t10`) are movement
+cards that don't resolve immediately — they set `pendingAction = {
+type: "awaitCardMove", playerId }` and wait on that exact player's own
+`confirmCardMove`. The client's "Continue" button (`BoardClassic.jsx`'s
+action zone) only ever renders for whoever `isMyTurn` currently is, not
+for `pendingAction.playerId` specifically — a distinction that never
+mattered before because every *real* card draw only ever happens to the
+active turn player, so the two were always the same person. Drawing a
+movement card off-turn via the dev button breaks that assumption: the
+real current-turn player sees "Continue" (their turn) but clicking it
+silently fails (wrong `pendingAction.playerId`, `confirmCardMove` just
+rejects), while the actual drawer never sees a Continue button at all
+(not their turn). Result: a permanently stuck `pendingAction` nobody can
+clear, and every further dev-button click after that also silently fails
+("Resolve the current action first") — silently, because `DevTools.jsx`
+fired these as bare `socket.emit()` calls with no ack callback, so no
+error ever reached the screen. With ~21% of the deck able to trigger
+this, it was very likely to hit within a handful of test clicks.
+
+**What was done:**
+- `Room.js`'s `debugDrawCard`: now rejects with `"Only the current
+  turn's player can use this"` if `this.started && this.currentPlayer()?.id
+  !== playerId` (same started-gated pattern `kickPlayer` already uses).
+  Keeps the invariant every other part of the client already assumes:
+  `pendingAction.playerId` is always the active turn player.
+  `debugGrantJailCard` untouched — its `getOutFree` effect resolves
+  instantly, no `pendingAction` involved, so it was never actually part
+  of this bug.
+- `DevTools.jsx`: all three buttons now pass an ack callback and surface
+  `res.error` inline (new `.dev-tools-error` span, `App.css`) instead of
+  swallowing it — this exact class of failure (silent no-op on click)
+  is what made the underlying bug so confusing to notice in the first
+  place.
+
+**Why this call:** considered instead loosening the client's Continue-
+button gating to `pendingAction.playerId === myId` (so an off-turn draw
+could still be resolved by whoever drew it) rather than restricting the
+dev tool — rejected because that's a real invariant the rest of the game
+correctly relies on `isMyTurn` for elsewhere, and bending it to
+accommodate a dev-only tool's off-turn use case felt like the wrong
+side to compromise. Requiring the tester to be the active turn player
+matches what the button already claims to do in its own comment
+("draws a card... without requiring them to land on a tile" — always
+implicitly *their own* card, just skipping the landing requirement).
+
+**State at end of pass:** server `npm test` 59/59. Client `vite build`
+and `oxlint` clean (same 5 pre-existing warnings, nothing new). Not
+visually verified by the assistant per [[feedback-verification-approach]]
+— user to re-test drawing through both decks, including deliberately
+off-turn, and confirm the new inline error shows instead of a silent
+no-op.
+
+---
+
+## Pass 40 — 2026-07-04 — Surprise/Treasure deck reworded into Jordanian-dialect Arabic
+
+**Goal:** first of the two "last polish items" flagged after Pass 39 — the
+Surprise/Treasure card text was still plain English while the rest of the
+game (tile names, the Wasta card, the title) leans Arabic. User wanted a
+full rewrite with actual Jordanian humor/slang, not a straight translation
+— drafted an English-effect/Arabic-flavor-idea table first for the user
+to react to, then the user supplied their own final wording for all 27
+of the 28 cards (kept `t6` — Get Out of Jail Free — English, since it
+already has its own bespoke "كرت الواسطة" Wasta face in `CardReveal.jsx`
+independent of `cards.js`'s plain `text` field).
+
+**What was done:**
+- `cards.js`: replaced every `SURPRISE_CARDS`/`TREASURE_CARDS` entry's
+  `text` with the user's Jordanian-dialect wording verbatim. `id` and
+  `effect` on every card are byte-for-byte unchanged — only flavor text
+  moved, so payout amounts/directions/repair scaling are identical to
+  before.
+- The file's own top comment previously said "never change an existing
+  card's id, text, or effect" — updated to reflect that `text` *can* be
+  reworded (id/effect can't), and that doing so means updating the one
+  test that pins exact text (below).
+- `cardMove.test.js`: `s6`'s move-back-3 test asserted
+  `room.lastCard.text` against the old literal English string — updated
+  to the new Arabic text. Also refreshed the illustrative (non-asserting)
+  comments on `s4`/`s5`/`s6`'s `forceTopCard` calls, which quoted the old
+  English purely for a human reader's benefit.
+
+**Follow-up in the same pass:** flagged that `s4` and `t5` share the
+identical effect (`advanceTo` Start + collect 200) but only `t5`'s
+wording mentioned collecting the 200 dinars. User confirmed `s4` should
+pick up the same clause — `s4`'s `text` now ends "...وخذ 200 دينار" too,
+matching `t5`; its `forceTopCard` comment in `cardMove.test.js` updated
+to match.
+
+**Explicitly out of scope, per the user ("let's not play with the
+logs"):** the game-log line wrapping every card draw
+(`` `${player.name} drew: "${card.text}"` `` in `Room.js`) stays English
+("drew:"), and so do `CardReveal.jsx`'s "Surprise"/"Treasure"/"Drawn by"
+labels on the reveal card face itself. Not a gap — a deliberate scope
+boundary the user set, not left for later.
+
+**State at end of pass:** server `npm test` 59/59 (1 assertion + 2 comments
+updated for the new text, everything else untouched since `id`/`effect`
+didn't move). No client files touched — confirmed via grep that nothing
+in `client/` hardcoded any of the old English card strings. Not visually
+verified by the assistant per [[feedback-verification-approach]] — user to
+draw through both decks in a real game and confirm the new wording reads
+right in the actual reveal-card UI (RTL layout, line length at the card's
+fixed width, etc.), not just as plain strings.
+
+---
+
+## Pass 39 — 2026-07-04 — Fix game log showing the wrong player's icon (duplicate names)
+
+**Goal:** user reported every game-log line showing the host's icon
+regardless of who actually acted, evidenced by a screenshot with two
+players both literally named "vfd" (the "(you)"/"host" tags in
+`PlayersPanel.jsx` are separate UI badges appended next to `p.name`, not
+part of the stored name itself — confirmed both rows render the identical
+`{p.name}`).
+
+**Root cause:** `logEntry.jsx`'s `renderLogEntry` (shared by `GameLog.jsx`
+and, before Pass 38, `AuctionModal.jsx`) identifies who a plain-text log
+line is about purely by matching the player's name as a literal substring,
+then looks up `named.find(p => p.name === part)` to grab their icon. Once
+two players share the exact same name, that string is genuinely
+ambiguous — there's no information left in it to say which of the two
+performed the action — so `.find()` deterministically returns whichever
+one of them happens to come first in `players[]` (in practice, always the
+same player for every line, regardless of who really acted).
+
+**What was done:**
+- `Room.js`'s `addPlayer`: names are now deduped the same way color
+  already is a few lines above it — if the trimmed (or `Seat N`
+  fallback) name is already taken by another player in the room, appends
+  " (2)", " (3)", etc. until unique.
+
+**Why this call:** the alternative (restructuring `pushLog`'s wire format
+to carry structured player references instead of pre-formatted text, so
+`renderLogEntry` never needs to guess) is a much larger refactor touching
+every `pushLog` call site in `Room.js`, several of which mention two
+players in one line (trades) or none at all. Preventing the name
+collision at the root — mirroring the dedup pattern `addPlayer` already
+uses for color — closes the ambiguity for free without touching the log
+format or `renderLogEntry` at all.
+
+**Known gap:** this only prevents *future* collisions — a room whose
+players already collided before this change (like the one in the
+screenshot) still has two same-named, ambiguously-attributed players for
+the rest of that room's life; only new `addPlayer` calls run through the
+dedup.
+
+**State at end of pass:** server `npm test` 59/59 (test helper's
+`makeRoom` already gives every player a distinct `name` positionally, so
+dedup never triggers there — nothing to update). Not visually verified by
+the assistant per [[feedback-verification-approach]] — user to start a
+fresh room with two identically-named players and confirm the log now
+correctly picks the auto-suffixed name/icon apart.
+
+---
+
 ## Pass 38 — 2026-07-04 — Fix property-card/modal z-index overlap; auction log shows icon+name, newest-first
 
 **Goal:** two bug reports, both with a screenshot for the first: (1) the

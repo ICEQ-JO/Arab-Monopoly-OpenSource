@@ -723,6 +723,12 @@
 }
 .dev-tools-btn:hover { border-color: #cc1111; }
 
+.dev-tools-error {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #ff8a8a;
+}
+
 /* ── ICON PICKER (waiting room) ──────────────────────────── */
 
 .lobby-icon-picker {
@@ -2757,7 +2763,6 @@ select {
 }
 .badge-bankrupt { background: #e74c3c; color: #fff; }
 .badge-left     { background: #7f8c8d;  color: #fff; }
-.badge-holding  { background: #e67e22;  color: #fff; }
 .badge-dc       { background: #3498db;   color: #fff; }
 .badge-debt     { background: #c0392b;  color: #fff; }
 

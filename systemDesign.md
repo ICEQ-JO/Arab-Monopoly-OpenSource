@@ -225,21 +225,41 @@ one. Fixed by tracking two pieces of room-level state, both reset to
   below.
 - `payToLeaveHolding`/`useHoldingFreeCard` — voluntary alternatives to
   rolling for doubles while stuck in the Holding Pen: pay the
-  `HOLDING_RELEASE_RENT` fine immediately, or consume a banked
-  `holdingFreeCard`, either of which sets `inHolding = false` so the
-  player's *next* `rollDice` this same turn behaves as ordinary free-play
-  movement rather than another holding-escape attempt. Both require it
-  being the player's own turn and that they're actually `inHolding`. The
-  client only *offers* these two buttons (and the "roll for doubles or
-  pay/use a card" choice generally) starting on the player's **next** turn,
-  not the turn they were sent to the Holding Pen on — gated client-side on
-  `!state.lastRoll` (i.e. they haven't rolled yet this turn), since
-  `lastRoll` is non-null the instant they're freshly confined mid-roll but
-  resets to `null` at the start of their following turn. The client offers
-  a third option alongside these two on that same turn: just calling
-  `rollDice` directly, which already fully supports the "roll for doubles
-  to escape" attempt on its own (see the Holding Pen logic in `rollDice`
-  above) — this was previously reachable server-side but had no button.
+  `HOLDING_RELEASE_RENT` fine immediately (always succeeds), or spend a
+  banked `holdingFreeCard` on a wasta phone call (only actually gets them
+  out `WASTA_SUCCESS_RATE` — 30% — of the time; see below). Either path
+  that actually clears `inHolding` means the player's *next* `rollDice`
+  this same turn behaves as ordinary free-play movement rather than
+  another holding-escape attempt. Both require it being the player's own
+  turn and that they're actually `inHolding`. The client only *offers*
+  these two buttons (and the "roll for doubles or pay/use a card" choice
+  generally) starting on the player's **next** turn, not the turn they
+  were sent to the Holding Pen on — gated client-side on `!state.lastRoll`
+  (i.e. they haven't rolled yet this turn), since `lastRoll` is non-null
+  the instant they're freshly confined mid-roll but resets to `null` at
+  the start of their following turn. The client offers a third option
+  alongside these two on that same turn: just calling `rollDice`
+  directly, which already fully supports the "roll for doubles to escape"
+  attempt on its own (see the Holding Pen logic in `rollDice` above) —
+  this was previously reachable server-side but had no button.
+- **`useHoldingFreeCard` is a coin flip, not a guaranteed release.** The
+  card represents calling in a favor, not an unconditional key out — it
+  rolls `Math.random() < WASTA_SUCCESS_RATE` (0.3) and is **consumed
+  either way**, win or lose. On success, `inHolding` clears exactly as
+  before. On failure, the player stays `inHolding` but keeps every other
+  option open the same turn (`rollDice` for doubles, `payToLeaveHolding`)
+  — losing the card doesn't cost them the turn, only the one shot at a
+  free exit. The result broadcasts as `wastaSeq` (bumped once per
+  attempt, same "tell a genuinely new event apart from a resend" role as
+  `rollSeq`/`cardSeq`/`jailSeq`) and `lastWastaAttempt: { playerId,
+  success }`. `components/WastaAttemptReveal.jsx` watches `wastaSeq` and
+  pops up one of two lines in the same "Wasta card" visual shell
+  `CardReveal.jsx` already built for the card-draw moment (frame,
+  corners, phone-call badge) — a separate component rather than folded
+  into `CardReveal` itself, since the two are driven by unrelated trigger
+  sources (`cardSeq` vs `wastaSeq`) that could in principle fire
+  independently, and sharing one dismiss-timer/`visible` state between
+  them risked one clobbering the other.
 - **Holding a Get Out of Jail Free card does not exempt a player from being
   sent to the Holding Pen in the first place.** `sendToHolding` no longer
   checks `holdingFreeCard` at all — it used to silently auto-consume the
@@ -324,7 +344,16 @@ back to a placeholder (`"Seat N"`, ordinal = join order) only if it's
 blank — unreachable in practice since the client already blocks
 submitting an empty name, but a real server-side guard regardless (never
 trust the client alone). There is no character-selection system; see the
-`game/characters.js` note in §2.2.
+`game/characters.js` note in §2.2. The (trimmed/fallback) name is then
+deduped against every other name already in the room — same pattern as
+the color dedup a few lines above it — appending " (2)", " (3)", etc.
+until unique. This isn't cosmetic: the room-wide game log is plain text
+(`pushLog`), and the client (`renderLogEntry`) identifies whose icon to
+show in a log line by matching that text against player names — two
+players sharing an identical name are genuinely indistinguishable in that
+text, so every line involving either of them would silently attribute to
+whichever one happens to come first in `players[]`, always showing that
+one player's icon regardless of who actually acted.
 
 **Turn timer (4-minute hard cap):** every player gets exactly
 `TURN_TIME_LIMIT_MS` (4 minutes) of wall-clock time to complete their
@@ -839,7 +868,7 @@ the next remaining active player automatically becomes host.
 | `mortgageProperty` | `{ tileId }` | requires undeveloped, not already mortgaged; not turn-gated |
 | `unmortgageProperty` | `{ tileId }` | requires enough coins for value + 10% interest; not turn-gated |
 | `payToLeaveHolding` | — | current-player-only; requires `player.inHolding`; costs `HOLDING_RELEASE_RENT` |
-| `useHoldingFreeCard` | — | current-player-only; requires `player.inHolding && holdingFreeCard` |
+| `useHoldingFreeCard` | — | current-player-only; requires `player.inHolding && holdingFreeCard`; consumes the card and only succeeds `WASTA_SUCCESS_RATE` (30%) of the time; ack: `{ ok, success }` |
 | `confirmCardMove` | — | resolves `pendingAction: awaitCardMove`; current-player-only, no decline option |
 | `endTurn` | — | current-player-only; rejected if `pendingAction` set **or no roll yet this turn**; finalizes bankruptcy via `finishTurn` if balance is still negative |
 | `leaveRoom` | — | graceful manual exit; forfeits the seat exactly like a disconnect would |
@@ -867,6 +896,8 @@ the next remaining active player automatically becomes host.
   jailFromTileId: number | null,  // tile the player was standing on the instant sendToHolding fired
   canRollAgain: boolean,  // client only shows "Roll dice" when true
   lastCard: { deck, text, playerId, effectType } | null,  // effectType (the drawn card's effect.type) lets the client single out specific cards for a custom reveal design, e.g. "getOutFree" -> the Wasta card
+  wastaSeq: number,       // increments once per real useHoldingFreeCard() attempt -- lets the client pop the wasta-attempt reveal exactly once
+  lastWastaAttempt: { playerId, success } | null,  // success is the WASTA_SUCCESS_RATE roll's outcome, not whether the card was spent (it's spent either way)
   pendingAction: {...} | null,
   turnDeadline: <epoch ms> | null,  // for the client's countdown display only
   trades: [...],         // see §2.3 "Trading"
@@ -1021,11 +1052,14 @@ grows much larger or tick rate increases.
   exactly the signal needed with no new state to introduce or keep in sync.
 - **Paying to leave the Holding Pen and using a Get Out of Jail Free card
   are alternatives to rolling, not additional actions on top of it.**
-  Neither one moves the player or consumes their roll for the turn — they
-  just clear `inHolding`, so the player's *next* `rollDice` call behaves
-  as ordinary free-play movement instead of attempting another
-  holding-escape roll. A player can still choose to just roll for doubles
-  instead of paying/using a card, exactly as before this fix.
+  Neither one moves the player or consumes their roll for the turn. Paying
+  always clears `inHolding`; using the card only does on a successful
+  `WASTA_SUCCESS_RATE` roll (a failure leaves `inHolding` untouched, just
+  spends the card) — either way, clearing `inHolding` is what makes the
+  player's *next* `rollDice` call behave as ordinary free-play movement
+  instead of attempting another holding-escape roll. A player can still
+  choose to just roll for doubles instead of paying/using a card, exactly
+  as before this fix.
 - **Persistence is "always-save, no debounce," not "save periodically."**
   Every state-changing event re-serializes and overwrites the entire
   `rooms.json` file. At this game's pace that's cheap and means in-memory
@@ -1049,8 +1083,11 @@ grows much larger or tick rate increases.
 - **A player's display name is exactly what they typed at `createRoom`/
   `joinRoom` time**, trimmed, with a `"Seat N"` placeholder fallback only
   if that came back blank (unreachable via the current client, which
-  already requires a non-empty name — see "Player identity" in §2.3).
-  There is no character-selection system to derive an identity from
+  already requires a non-empty name — see "Player identity" in §2.3), then
+  auto-suffixed (`" (2)"`, `" (3)"`, ...) if it collides with another name
+  already in the room — the room-wide log's plain-text player attribution
+  (`renderLogEntry`) depends on names being unique to pick the right
+  player's icon. There is no character-selection system to derive an identity from
   instead — see §2.2 and §6.
 - **Icon selection is enforced once, at `startGame` time, not
   continuously.** `setIcon`'s own uniqueness check (can't take an icon
