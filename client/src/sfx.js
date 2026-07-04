@@ -73,11 +73,10 @@ export const playCardPull       = makeClipPlayer("/sounds/card-pull.mp3");
 export const playGameStart      = makeClipPlayer("/sounds/gameStart.mp3");
 export const playError          = makeClipPlayer("/sounds/error.mp3");
 
-// Backwards-compatible aliases for existing callers.
-export const playTradePopup     = playMoneyGained;   // ponytail: old trade-offer sound removed; reuse gain chime
-export const playTradeAccepted  = playMoneyGained;   // ponytail: old trade-accept sound removed; reuse gain chime
-export const playTradeDeclined  = playMoneyLost;     // ponytail: old trade-decline sound removed; reuse loss chime
-export const playBoughtTile     = playMoneyLost;     // ponytail: old buy sound removed; reuse loss chime (purchase = cash out)
+export const playTradePopup     = makeClipPlayer("/sounds/trade_offer.mp3");
+export const playTradeAccepted  = makeClipPlayer("/sounds/trade_accepted.mp3");
+export const playTradeDeclined  = makeClipPlayer("/sounds/trade_declined.mp3");
+export const playBoughtTile     = makeClipPlayer("/sounds/money_lost.mp3");     // ponytail: old buy sound removed; reuse loss chime (purchase = cash out)
 
 // Token movement swoosh (synthesized, per-step).
 export function playMoveSwoosh() {
