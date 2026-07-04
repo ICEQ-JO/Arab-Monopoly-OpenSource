@@ -760,7 +760,10 @@ export class Room {
     auction.highestBid = amount;
     auction.highestBidderId = playerId;
     auction.deadline = Math.max(auction.deadline, Date.now() + AUCTION_EXTEND_MS);
-    auction.log.push(`${player.name} bid $${amount}.`);
+    // Newest-first (unshift), same convention as the room-wide log's pushLog --
+    // structured (not pre-formatted text) so the client can pair the player's
+    // icon with their name instead of one replacing the other.
+    auction.log.unshift({ playerId, amount });
     this.scheduleAuctionTimer(auction.id);
     this.pushLog(`${player.name} bid ${amount} coins on ${this._board[auction.tileId].name}.`);
     this.maybeResolveAuction(auction.id);
@@ -772,7 +775,7 @@ export class Room {
     if (!auction) return { error: "Auction not found" };
     if (!auction.passedIds.includes(playerId)) {
       auction.passedIds.push(playerId);
-      auction.log.push(`${this.playerById(playerId)?.name ?? "A player"} passed.`);
+      auction.log.unshift({ playerId, passed: true });
       this.pushLog(`${this.playerById(playerId)?.name ?? "A player"} passed on ${this._board[auction.tileId].name}.`);
       this.maybeResolveAuction(auction.id);
     }

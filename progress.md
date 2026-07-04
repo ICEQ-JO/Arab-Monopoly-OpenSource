@@ -9,6 +9,60 @@ in the same pass.
 
 ---
 
+## Pass 38 — 2026-07-04 — Fix property-card/modal z-index overlap; auction log shows icon+name, newest-first
+
+**Goal:** two bug reports, both with a screenshot for the first: (1) the
+board's tile-click info card visually sat on top of the trade/auction
+popup instead of behind it, and (2) the auction popup's bid/pass log
+listed oldest-first and only showed a player's icon (name text swapped
+out entirely), where the user wants newest-first with `[icon] Name bid
+$X.`.
+
+**What was done (z-index overlap):**
+- `BoardClassic.jsx`: the tile-info-card wrapper (`.cv2-tile-card-wrap`)
+  had an inline `zIndex: 200`, well above `.trade-modal-overlay`'s
+  `z-index: 100` (`App.css`) — so any trade/auction popup opening while a
+  property card was open rendered underneath it. Dropped it to `60`
+  (still above the board's own token layer at `z-index: 50`, but below
+  every modal overlay), so a trade/auction popup now always wins.
+
+**What was done (auction log):**
+- `Room.js`'s `placeBid`/`passAuction`: `auction.log` entries used to be
+  pre-formatted strings (`` `${player.name} bid $${amount}.` ``) appended
+  with `.push()` (oldest-first). Switched to structured entries
+  (`{ playerId, amount }` / `{ playerId, passed: true }`) added via
+  `.unshift()` (newest-first, matching the room-wide log's own
+  `pushLog` convention).
+- `AuctionModal.jsx`: no longer runs these through the shared
+  `renderLogEntry` (which *replaces* a matched name with just an avatar —
+  the right behavior for the room-wide log, per Pass 17, but not what was
+  asked here). Instead looks up the bidder by `entry.playerId` and renders
+  `<PlayerAvatar> Name bid $X.` directly — icon and name both visible.
+  Added `.auction-log-row` (flex, small gap) to `App.css` so the avatar
+  and text align cleanly; left `.auction-log p`'s existing font/color/
+  margin rules in place since the row is still a `<p>`.
+- `systemDesign.md`: updated the `startAuction`/`auctions[]` shape bullet
+  to include `log`, and documented the newest-first/structured-entry
+  convention and why it deliberately diverges from `renderLogEntry`.
+
+**Why these calls:** picked structured log entries over reversing the
+existing string array client-side (or regex-splicing the name back into
+the replaced text) because the shared `renderLogEntry` helper's whole
+contract is "replace the name with an icon" — bending it to sometimes keep
+the name too would've meant a second mode on a shared helper for one
+caller. A small server-side shape change plus a dedicated render in
+`AuctionModal.jsx` keeps `renderLogEntry`/`GameLog.jsx` untouched.
+
+**State at end of pass:** server `npm test` 59/59 (no auction-log tests
+existed to update — nothing asserts on that array's shape/order). Client
+`vite build` and `oxlint` clean (same 5 pre-existing warnings as prior
+passes, no new ones). Not visually verified by the assistant per
+[[feedback-verification-approach]] — user to re-open the property card
+during a live trade/auction, and check the auction log's order/format
+against a multi-bid exchange.
+
+---
+
 ## Pass 37 — 2026-07-04 — Fix stale-disconnect race kicking players who already reconnected
 
 **Goal:** user reported that on Render (not reproducible locally), getting

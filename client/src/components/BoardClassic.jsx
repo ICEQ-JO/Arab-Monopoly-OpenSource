@@ -785,7 +785,10 @@ export default function BoardClassic({ state, myId, tokenMoving, onTokenMovingCh
           <div
             ref={cardRef}
             className="cv2-tile-card-wrap"
-            style={{ position: "absolute", top: cardPos.top, left: cardPos.left, zIndex: 200 }}
+            // Below .trade-modal-overlay's z-index: 100 (App.css) on purpose --
+            // a trade/auction popup should always sit above this card, not be
+            // hidden behind it.
+            style={{ position: "absolute", top: cardPos.top, left: cardPos.left, zIndex: 60 }}
           >
             {selectedTile.type === "transit" ? (
               <TransitCardDetail

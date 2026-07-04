@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { socket } from "../socket";
-import { renderLogEntry } from "../logEntry";
 import { IconClock } from "./icons";
 import PlayerAvatar from "./PlayerAvatar";
 import PropertyCardDetail from "./PropertyCardDetail";
@@ -96,7 +95,18 @@ function AuctionCard({ auction, board, players, myId }) {
           {auction.log.length === 0 ? (
             <p className="auction-log-empty">No bids yet -- be the first.</p>
           ) : (
-            auction.log.map((entry, i) => <p key={i}>{renderLogEntry(entry, players, i)}</p>)
+            // Newest first -- see Room.placeBid/passAuction, which unshift.
+            auction.log.map((entry, i) => {
+              const bidder = players.find((p) => p.id === entry.playerId);
+              return (
+                <p key={i} className="auction-log-row">
+                  <PlayerAvatar player={bidder} sizeClass="log-avatar" />
+                  <span>
+                    {bidder?.name ?? "A player"} {entry.passed ? "passed." : `bid $${entry.amount}.`}
+                  </span>
+                </p>
+              );
+            })
           )}
         </div>
       </div>

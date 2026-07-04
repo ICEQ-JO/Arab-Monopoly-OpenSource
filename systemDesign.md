@@ -459,7 +459,7 @@ like it had stopped working after the first attempt with any given player.
 property — it calls `startAuction(tileId)`, opening bidding to every
 active player (including whoever just declined).
 - `startAuction` pushes a new entry onto `auctions[]` (`{ id, tileId,
-  highestBid, highestBidderId, passedIds, deadline, timer }`) and sets
+  highestBid, highestBidderId, passedIds, deadline, timer, log }`) and sets
   `pendingAction = { type: "auction", tileId, auctionId, playerId:
   currentPlayer.id }`. Because `rollDice`/`endTurn` already refuse to act
   while *any* `pendingAction` is set, this one line is enough to block the
@@ -809,6 +809,14 @@ the next remaining active player automatically becomes host.
   who doesn't want the tile just doesn't bid and waits for the deadline to
   pass. Shows "You passed on this auction" if `myId` is already in that
   auction's `passedIds` (only reachable via that bankruptcy/kick path now).
+  Each auction's `log[]` (`{ playerId, amount }` for a bid, `{ playerId,
+  passed: true }` for a pass) is `unshift`ed server-side, so the list
+  renders newest-first, same convention as the room-wide `log[]`
+  (`pushLog`). Unlike the room-wide log — which runs plain pre-formatted
+  text through `renderLogEntry` to swap a player's name for their icon
+  inline — this log is structured specifically so the client can show the
+  icon *and* the name together (`[icon] Name bid $10.`), not one in place
+  of the other.
 
 ## 4. Wire protocol (Socket.io events)
 
