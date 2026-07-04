@@ -50,7 +50,7 @@ function makeClipPlayer(src, volume = 1) {
       const node = c.createBufferSource();
       node.buffer = buffer;
       const gain = c.createGain();
-      gain.gain.value = volume;
+      gain.gain.value = volume * 0.7;
       node.connect(gain);
       gain.connect(c.destination);
       node.start();
